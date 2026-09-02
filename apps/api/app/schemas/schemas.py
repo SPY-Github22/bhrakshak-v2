@@ -85,6 +85,9 @@ class SyncBatchOut(BaseModel):
     duplicates_merged: int
     flagged: int
     synced_ids: list[uuid.UUID]
+    # Reports that failed to persist. The mobile client keeps these in its
+    # offline queue and retries; it must never drop a row the server rejected.
+    rejected_ids: list[uuid.UUID] = []
 
 
 class ReportOut(ORMModel):

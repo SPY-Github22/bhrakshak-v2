@@ -658,13 +658,19 @@ class MainActivity : AppCompatActivity() {
             if (txt.isNotEmpty()) {
                 lifecycleScope.launch {
                     try {
+                        val token = TokenStore.access(this@MainActivity)
+                        if (token == null) {
+                            Toast.makeText(this@MainActivity, "Not logged in", Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
                         Api.service.sendChatMessage(
                             com.bhrakshak.field.data.ChatMessageIn(
                                 senderName = email,
                                 location = locName,
                                 message = txt,
                                 role = "field_responder",
-                            )
+                            ),
+                            token = "Bearer $token",
                         )
                         inputEdit.setText("")
                         Toast.makeText(this@MainActivity, "Message Sent to PC Command Center ✓", Toast.LENGTH_SHORT).show()
@@ -682,7 +688,9 @@ class MainActivity : AppCompatActivity() {
         chatJob = lifecycleScope.launch {
             while (isActive) {
                 try {
-                    val msgs = Api.service.chatMessages()
+                    val token = TokenStore.access(this@MainActivity) ?: break
+                    // Server contract: oldest -> newest (last 50). Render as-is.
+                    val msgs = Api.service.chatMessages("Bearer $token")
                     msgBox.text = if (msgs.isEmpty()) "No chat messages yet."
                     else msgs.joinToString("\n\n") { m ->
                         "👤 ${m.senderName} (${m.location})\n💬 ${m.message}\n⏰ ${m.timestamp.take(19).replace('T', ' ')}"

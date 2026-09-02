@@ -265,10 +265,15 @@ interface BhrakshakApi {
     ): PhotoVerdict
 
     @GET("api/v1/chat/messages")
-    suspend fun chatMessages(): List<ChatMessageOut>
+    suspend fun chatMessages(
+        @Header("Authorization") token: String,
+    ): List<ChatMessageOut>
 
     @POST("api/v1/chat/send")
-    suspend fun sendChatMessage(@Body msg: ChatMessageIn): ChatMessageOut
+    suspend fun sendChatMessage(
+        @Body msg: ChatMessageIn,
+        @Header("Authorization") token: String,
+    ): ChatMessageOut
 }
 
 // ---------------------------------------------------------------------------

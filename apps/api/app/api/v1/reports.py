@@ -1,3 +1,4 @@
+import logging
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,9 @@ from app.api.deps import OPS_ROLES, STAFF_ROLES, get_current_user, require_roles
 from app.db.session import get_db
 from app.models import CitizenReport, Role, User
 from app.schemas.schemas import ReportIn, ReportOut, SyncBatchIn, SyncBatchOut
+from app.services.risk_engine import publish_live
+
+log = logging.getLogger("bhrakshak.reports")
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -64,41 +68,64 @@ async def sync_reports(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Idempotent offline sync: upsert by client UUID; duplicates merged."""
-    accepted, merged, flagged, synced = 0, 0, 0, []
+    """Idempotent offline sync: upsert by client UUID; duplicates merged.
+
+    Honesty contract: `accepted` only counts reports that actually persisted
+    (or were deduped into an existing report). A failed DB write is reported
+    as rejected in `rejected_ids`, never silently swallowed -- the mobile
+    client must be able to trust the response to drop its queued rows.
+    """
+    accepted, merged, flagged = 0, 0, 0
+    synced: list[str] = []
+    rejected: list[str] = []
+    last_error: str | None = None
+
     for item in batch.reports:
-        synced.append(item.client_id)
-        accepted += 1
-        DEMO_REPORTS.insert(0, ReportOut(
-            id=item.client_id,
-            author_id=user.id,
-            role=user.role.value if hasattr(user.role, 'value') else str(user.role),
-            category=item.category,
-            description=item.description or f"Field report ({item.category}) submitted via mobile app.",
-            status="pending",
-            dup_count=0,
-            exif_geo_ok=True,
-            taken_at=datetime.now(timezone.utc),
-            created_at=datetime.now(timezone.utc),
-            lat=float(item.lat),
-            lon=float(item.lon),
-        ))
-        if db is not None:
+        try:
+            dup = await _find_duplicate(db, item.lat, item.lon, item.category)
+            if dup is not None:
+                dup.dup_count = (dup.dup_count or 0) + 1
+                await db.commit()
+                merged += 1
+                synced.append(item.client_id)
+                await publish_live("report", {
+                    "id": str(dup.id),
+                    "category": dup.category,
+                    "dup_count": dup.dup_count,
+                    "merged": True,
+                })
+                continue
+            out = await _upsert_report(db, item, user, sync_batch=batch.batch_id)
+            accepted += 1
+            synced.append(item.client_id)
+            await publish_live("report", {
+                "id": str(out.id),
+                "category": out.category,
+                "description": out.description,
+                "lat": out.lat,
+                "lon": out.lon,
+                "status": out.status,
+                "merged": False,
+            })
+        except Exception as exc:  # surface, don't swallow
+            rejected.append(item.client_id)
+            last_error = str(exc)
             try:
-                await _upsert_report(db, item, user, sync_batch=batch.batch_id)
+                await db.rollback()
             except Exception:
                 pass
-    if db is not None:
-        try:
-            await db.commit()
-        except Exception:
-            pass
+
+    if rejected and last_error:
+        log.warning("reports/sync: %d/%d rejected, last error: %s",
+                    len(rejected), len(batch.reports), last_error)
+
     return SyncBatchOut(
         batch_id=batch.batch_id,
         accepted=accepted,
         duplicates_merged=merged,
         flagged=flagged,
         synced_ids=synced,
+        rejected_ids=rejected,
     )
 
 

@@ -14,7 +14,9 @@ web dashboard and the field PWA. Nothing is duplicated server-side.
 | `GET /api/v1/evacuation/safe-route?lat&lon` | pathway model to the safest shelter; polyline rendered in-app; cached for offline |
 | `GET /api/v1/zones/{id}/weather` | rain gauge: accumulations, soil moisture, I-D breach status; cached for offline |
 | `GET /api/v1/alerts` | alert history with channels |
-| `WS /ws/live` | live push: `alert` and `ndrf_message` events raise heads-up notifications (foreground service, reconnect w/ backoff) |
+| `GET /api/v1/chat/messages` | emergency chat history (JWT required); **oldest → newest**, last 50 |
+| `POST /api/v1/chat/send` | post to the emergency chat (JWT required; staff roles only — admin / district_admin / field_official). Identity (sender_name/role) is derived from the token, never the body |
+| `WS /ws/live` | live push: `alert`, `ndrf_message`, and `chat_message` events raise heads-up notifications (foreground service, reconnect w/ backoff) |
 
 ## Offline contract (identical to PWA)
 
@@ -29,6 +31,14 @@ web dashboard and the field PWA. Nothing is duplicated server-side.
    EXIF provenance flags; the sha1 `media_key` is stored on the queued row
    and sent as `media_refs`, letting the backend attach the verdict to the
    synced report by key.
+5. `POST /reports/sync` response carries `rejected_ids` alongside
+   `synced_ids`: rows the server failed to persist. The SyncWorker must keep
+   those in the Room queue and retry — a row is only dropped after it appears
+   in `synced_ids`.
+6. Chat contract: `GET /chat/messages` returns oldest→newest (render as-is,
+   no client-side reversal); `POST /chat/send` requires a Bearer token and
+   returns the canonical message (server UUID + timestamp + role label) —
+   clients reconcile by `id`, never by locally-fabricated copies.
 
 ## Verified live state (2026-09-02)
 

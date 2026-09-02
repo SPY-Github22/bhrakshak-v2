@@ -53,6 +53,11 @@ class LiveAlertService : LifecycleService() {
                         obj.optString("text"),
                         notifId = obj.optString("message_id").hashCode(),
                     )
+                    "chat_message" -> notify(
+                        "💬 ${obj.optString("sender_name")}",
+                        obj.optString("message"),
+                        notifId = obj.optString("id").hashCode(),
+                    )
                     // heartbeat / risk_diff / sensor: silent
                 }
             }

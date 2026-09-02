@@ -1,9 +1,9 @@
 "use client";
 
 import { MessageSquare, Send, X, User, MapPin } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { endpoints } from "@/lib/api";
+import { endpoints, ensureToken, getSession } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface ChatMsg {
@@ -15,56 +15,104 @@ interface ChatMsg {
   timestamp: string;
 }
 
-const WS_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace("http", "ws");
+function wsUrl(): string {
+  const base = endpoints.API;
+  return base.replace(/^http/, "ws") + "/ws/live";
+}
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [unread, setUnread] = useState(0);
+  const [connected, setConnected] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
 
-  useEffect(() => {
-    const fetchMsgs = () => {
-      fetch(`${endpoints.API}/api/v1/chat/messages`, {
-        headers: { "Bypass-Tunnel-Remainder": "true" },
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            const list = data.reverse();
-            setMessages(list);
-          }
-        })
-        .catch(() => {});
-    };
-
-    fetchMsgs();
-    const interval = setInterval(fetchMsgs, 3000);
-
-    // Live WebSocket listener
-    let ws: WebSocket | null = null;
+  const fetchMsgs = useCallback(async () => {
     try {
-      const getWs = () => {
-        if (typeof window !== "undefined" && window.location.protocol === "https:") {
-          return "wss://bhrakshak-api-demo.loca.lt/ws/live";
-        }
-        return `${WS_URL}/ws/live`;
+      const token = await ensureToken();
+      const res = await fetch(`${endpoints.API}/api/v1/chat/messages`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Bypass-Tunnel-Remainder": "true",
+        },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        // Server contract: oldest -> newest. Dedupe by id (poll + WS race).
+        setMessages((prev) => {
+          const seen = new Set(data.map((m: ChatMsg) => m.id));
+          return data as ChatMsg[];
+        });
+      }
+    } catch {
+      /* offline: keep last known messages */
+    }
+  }, []);
+
+  // Initial load + light polling as WS fallback (survives tunnel hiccups).
+  useEffect(() => {
+    fetchMsgs();
+    const interval = setInterval(fetchMsgs, 5000);
+    return () => clearInterval(interval);
+  }, [fetchMsgs]);
+
+  // Live WebSocket with reconnect + backoff. Unread only counts when the
+  // panel is closed, and only for messages from the field (not our own).
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let retry = 0;
+    let stopped = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = () => {
+      if (stopped) return;
+      try {
+        ws = new WebSocket(wsUrl());
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+      ws.onopen = () => {
+        retry = 0;
+        setConnected(true);
       };
-      ws = new WebSocket(getWs());
       ws.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
-          if (data.type === "chat_message") {
-            fetchMsgs();
-            setUnread((u) => u + 1);
-          }
-        } catch {}
+          if (data.type !== "chat_message") return;
+          const msg = data as ChatMsg;
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msg.id)) return prev;
+            return [...prev, msg];
+          });
+          if (!openRef.current) setUnread((u) => u + 1);
+        } catch { }
       };
-    } catch {}
+      ws.onclose = () => {
+        setConnected(false);
+        scheduleReconnect();
+      };
+      ws.onerror = () => ws?.close();
+    };
 
+    const scheduleReconnect = () => {
+      if (stopped || reconnectTimer) return;
+      const delay = Math.min(1000 * 2 ** retry, 30000);
+      retry += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    };
+
+    connect();
     return () => {
-      clearInterval(interval);
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       ws?.close();
     };
   }, []);
@@ -77,31 +125,38 @@ export function ChatWidget() {
   }, [open, messages]);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
     const txt = input.trim();
+    if (!txt) return;
     setInput("");
 
-    const newMsg: ChatMsg = {
-      id: String(Date.now()),
-      sender_name: "DC Command Center (HQ)",
-      location: "East Khasi Hills HQ",
-      message: txt,
-      role: "admin",
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
-
+    const session = getSession();
     try {
-      await fetch(`${endpoints.API}/api/v1/chat/send`, {
+      const token = await ensureToken();
+      const res = await fetch(`${endpoints.API}/api/v1/chat/send`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
           "Bypass-Tunnel-Remainder": "true",
         },
-        body: JSON.stringify(newMsg),
+        body: JSON.stringify({
+          message: txt,
+          location: session?.email ?? "Command Center",
+        }),
       });
-    } catch {}
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        console.error("chat send failed", res.status, detail);
+        return;
+      }
+      const sent = (await res.json()) as ChatMsg;
+      // Reconcile with the server's canonical copy (id, timestamp, identity).
+      setMessages((prev) =>
+        prev.some((m) => m.id === sent.id) ? prev : [...prev, sent],
+      );
+    } catch (err) {
+      console.error("chat send error", err);
+    }
   };
 
   return (
@@ -112,12 +167,27 @@ export function ChatWidget() {
           <div className="flex items-center justify-between border-b border-edge bg-orange-950/40 px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                <span
+                  className={cn(
+                    "absolute inline-flex h-full w-full rounded-full opacity-75",
+                    connected ? "animate-ping bg-emerald-400" : "bg-red-500"
+                  )}
+                />
+                <span
+                  className={cn(
+                    "relative inline-flex h-2.5 w-2.5 rounded-full",
+                    connected ? "bg-emerald-500" : "bg-red-500"
+                  )}
+                />
               </span>
               <span className="text-sm font-bold text-ink">Field Emergency Chat</span>
-              <span className="rounded bg-orange-600/30 px-1.5 py-0.5 text-[9px] font-bold text-orange-300">
-                LIVE
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[9px] font-bold",
+                  connected ? "bg-orange-600/30 text-orange-300" : "bg-red-900/40 text-red-300"
+                )}
+              >
+                {connected ? "LIVE" : "RECONNECTING"}
               </span>
             </div>
             <button
@@ -136,7 +206,7 @@ export function ChatWidget() {
               </div>
             ) : (
               messages.map((m, i) => {
-                const isHq = m.role === "admin" || m.sender_name.includes("HQ") || m.sender_name.includes("DC");
+                const isHq = m.role === "admin" || m.role === "district_admin";
                 return (
                   <div
                     key={m.id || i}
@@ -152,7 +222,12 @@ export function ChatWidget() {
                         <User size={11} /> {m.sender_name}
                       </span>
                       <span className="text-[9px] text-slate-400">
-                        {m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
+                        {m.timestamp
+                          ? new Date(m.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                          : ""}
                       </span>
                     </div>
 

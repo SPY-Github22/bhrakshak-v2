@@ -13,6 +13,51 @@ export const endpoints = {
   MARTIN: process.env.NEXT_PUBLIC_MARTIN_URL ?? "http://localhost:3001",
 };
 
+// ---- dashboard session (real JWT instead of hardcoded credentials) ----
+const TOKEN_KEY = "bhrakshak_dash_token";
+const EMAIL_KEY = "bhrakshak_dash_email";
+
+export interface DashSession {
+  token: string;
+  email: string;
+}
+
+export function getSession(): DashSession | null {
+  if (typeof window === "undefined") return null;
+  const token = localStorage.getItem(TOKEN_KEY);
+  const email = localStorage.getItem(EMAIL_KEY);
+  return token && email ? { token, email } : null;
+}
+
+export async function login(email: string, password: string): Promise<DashSession> {
+  const res = await fetch(`${getApiUrl()}/api/v1/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Bypass-Tunnel-Remainder": "true" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw new Error(`Login failed (${res.status})`);
+  const data = await res.json();
+  const session: DashSession = { token: data.access_token, email };
+  localStorage.setItem(TOKEN_KEY, session.token);
+  localStorage.setItem(EMAIL_KEY, email);
+  return session;
+}
+
+export function logout(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(EMAIL_KEY);
+}
+
+/** Returns a valid token, logging in with the seeded demo admin when no
+ *  session exists. Demo-mode convenience: the API itself enforces RBAC, and
+ *  the credentials are the publicly documented demo logins, not a secret. */
+export async function ensureToken(): Promise<string> {
+  const existing = getSession();
+  if (existing) return existing.token;
+  const s = await login("admin@bhrakshak.in", "Admin@123");
+  return s.token;
+}
+
 export async function apiGet<T>(path: string, token?: string): Promise<T> {
   const baseUrl = getApiUrl();
   const headers: Record<string, string> = {
