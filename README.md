@@ -1,4 +1,7 @@
-# BhuRakshak (भूरक्षक)
+# BhuRakshak v2 (भूरक्षक v2)
+
+> **Repository:** [https://github.com/SPY-Github22/bhrakshak-v2](https://github.com/SPY-Github22/bhrakshak-v2)  
+> **Branch:** `main`
 
 **AI-Based Early Warning and Landslide Risk Monitoring System in NER — SIH26001**
 
