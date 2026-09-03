@@ -54,9 +54,9 @@ export function LayerRail() {
             </button>
           ))}
         </div>
-        {horizon !== "now" && (
+        {horizon !== "now" && horizon !== 0 && (
           <p className="mt-1.5 text-[10px] leading-tight text-yellow-600">
-            {horizon.toUpperCase()} surface — Model B forecast fusion lands in ML phase
+            {String(horizon).toUpperCase()} surface — Model B forecast fusion lands in ML phase
           </p>
         )}
       </div>

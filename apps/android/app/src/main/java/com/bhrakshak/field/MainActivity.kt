@@ -125,9 +125,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(scroll)
 
         restoreLastLocation()
-        val defaultUrl = "https://bhrakshak-api-demo.loca.lt"
+        val defaultUrl = "http://10.68.3.168:8000"
         val saved = prefs.getString("server_url", defaultUrl) ?: defaultUrl
-        val activeUrl = if (saved.startsWith("http://10.") || saved.startsWith("http://192.") || saved.contains("10.0.2.2") || saved.contains("weak-guests")) defaultUrl else saved
+        val activeUrl = if (saved.contains("loca.lt") || saved.contains("10.0.2.2")) defaultUrl else saved
         ApiConfig.setUrl(activeUrl)
         Api.rebuild()
 
@@ -189,9 +189,9 @@ class MainActivity : AppCompatActivity() {
             text = "Rakshak — Field (SIH26001)"
             setTextColor(0xFFFB923C.toInt()); textSize = 22f
         })
-        val defaultUrl = "https://bhrakshak-api-demo.loca.lt"
+        val defaultUrl = "http://10.68.3.168:8000"
         var storedUrl = prefs.getString("server_url", defaultUrl) ?: defaultUrl
-        if (storedUrl.startsWith("http://10.") || storedUrl.startsWith("http://192.") || storedUrl.contains("10.0.2.2") || storedUrl.contains("weak-guests")) {
+        if (storedUrl.contains("loca.lt") || storedUrl.contains("10.0.2.2")) {
             storedUrl = defaultUrl
             prefs.edit().putString("server_url", defaultUrl).apply()
         }
@@ -204,8 +204,8 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(server)
         root.addView(label("Server connection (Public Cloud Tunnel or custom endpoint)"))
-        val email = EditText(this).apply { hint = "email"; setSingleLine() }
-        val pw = EditText(this).apply { hint = "password"; inputType = 0x81 }
+        val email = EditText(this).apply { hint = "email"; setSingleLine(); setText("citizen@bhrakshak.in") }
+        val pw = EditText(this).apply { hint = "password"; inputType = 0x81; setText("Citizen@123") }
         root.addView(email); root.addView(pw)
         lateinit var loginBtn: Button
         loginBtn = button("LOGIN", 0xFFEA580C.toInt()) {
