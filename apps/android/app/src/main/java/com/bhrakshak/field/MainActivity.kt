@@ -125,9 +125,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(scroll)
 
         restoreLastLocation()
-        val defaultUrl = "http://10.68.3.168:8000"
+        val defaultUrl = BuildConfig.API_BASE_URL
         val saved = prefs.getString("server_url", defaultUrl) ?: defaultUrl
-        val activeUrl = if (saved.contains("loca.lt") || saved.contains("10.0.2.2")) defaultUrl else saved
+        val activeUrl = if (saved == "http://10.68.3.168:8000") defaultUrl else saved
         ApiConfig.setUrl(activeUrl)
         Api.rebuild()
 
@@ -189,9 +189,9 @@ class MainActivity : AppCompatActivity() {
             text = "Rakshak — Field (SIH26001)"
             setTextColor(0xFFFB923C.toInt()); textSize = 22f
         })
-        val defaultUrl = "http://10.68.3.168:8000"
+        val defaultUrl = BuildConfig.API_BASE_URL
         var storedUrl = prefs.getString("server_url", defaultUrl) ?: defaultUrl
-        if (storedUrl.contains("loca.lt") || storedUrl.contains("10.0.2.2")) {
+        if (storedUrl == "http://10.68.3.168:8000") {
             storedUrl = defaultUrl
             prefs.edit().putString("server_url", defaultUrl).apply()
         }
@@ -756,10 +756,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissionsIfNeeded() {
-        val needed = listOf(
+        val needed = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.CAMERA,
         )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
         val missing = needed.filter {
             ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }

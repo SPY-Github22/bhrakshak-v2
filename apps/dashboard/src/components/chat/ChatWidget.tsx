@@ -36,7 +36,7 @@ export function ChatWidget() {
       const res = await fetch(`${endpoints.API}/api/v1/chat/messages`, {
         headers: {
           Authorization: `Bearer ${token}`,
-          "Bypass-Tunnel-Remainder": "true",
+          "bypass-tunnel-reminder": "true",
         },
       });
       if (!res.ok) return;
@@ -137,7 +137,7 @@ export function ChatWidget() {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
-          "Bypass-Tunnel-Remainder": "true",
+          "bypass-tunnel-reminder": "true",
         },
         body: JSON.stringify({
           message: txt,

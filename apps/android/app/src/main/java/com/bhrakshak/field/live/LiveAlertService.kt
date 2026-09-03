@@ -34,6 +34,31 @@ class LiveAlertService : LifecycleService() {
     private var socket: WebSocket? = null
     private var retry = 0
 
+    private fun isAlertNearUser(obj: JSONObject): Boolean {
+        if (!obj.has("lat") || !obj.has("lon")) return true
+        val alat = obj.optDouble("lat", 0.0)
+        val alon = obj.optDouble("lon", 0.0)
+        if (alat == 0.0 && alon == 0.0) return true
+
+        val prefs = getSharedPreferences("bhrakshak_cache", MODE_PRIVATE)
+        val rawLoc = prefs.getString("last_location", null) ?: return true
+        val parts = rawLoc.split(",")
+        if (parts.size < 2) return true
+        val dlat = parts[0].toDoubleOrNull() ?: return true
+        val dlon = parts[1].toDoubleOrNull() ?: return true
+
+        val r = 6371.0
+        val dLat = Math.toRadians(alat - dlat)
+        val dLon = Math.toRadians(alon - dlon)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(dlat)) * Math.cos(Math.toRadians(alat)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        val distKm = r * c
+
+        return distKm <= 75.0
+    }
+
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             retry = 0
@@ -43,11 +68,15 @@ class LiveAlertService : LifecycleService() {
             runCatching {
                 val obj = JSONObject(text)
                 when (obj.optString("type")) {
-                    "alert" -> notify(
-                        "⚠ L${obj.optInt("level", 0)} ${obj.optString("name")}",
-                        obj.optString("message"),
-                        notifId = obj.optString("zone_code").hashCode(),
-                    )
+                    "alert" -> {
+                        if (isAlertNearUser(obj)) {
+                            notify(
+                                "⚠ L${obj.optInt("level", 0)} ${obj.optString("name")}",
+                                obj.optString("message"),
+                                notifId = obj.optString("zone_code").hashCode(),
+                            )
+                        }
+                    }
                     "ndrf_message" -> notify(
                         "NDRF: ${obj.optString("from_station")}",
                         obj.optString("text"),

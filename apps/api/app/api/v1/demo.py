@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import ADMIN_ONLY, require_roles
+from app.api.v1.ws import broadcast_event
 from app.db.session import get_db
 from app.models import RainfallObs, Zone
 from app.schemas.schemas import StormInjectIn
@@ -41,6 +42,29 @@ async def inject_rainfall_storm(
 ):
     """Synthetic extreme-rainfall ramp over a district's zones, then run the REAL
     recompute pipeline (thresholds + hysteresis + alerts). Flagged demo-only."""
+    district_coords = {
+        "Noney": (24.88, 93.72),
+        "East Khasi Hills": (25.27, 91.73),
+        "Aizawl": (23.73, 92.72),
+        "Gangtok": (27.33, 88.61),
+        "Imphal West": (24.80, 93.94),
+    }
+    lat, lon = district_coords.get(body.district, (24.88, 93.72))
+    alert_event = {
+        "type": "alert",
+        "level": 4,
+        "name": f"Extreme Monsoon Storm — {body.district}",
+        "district": body.district,
+        "zone_code": f"{body.district[:3].upper()}-STORM",
+        "lat": lat,
+        "lon": lon,
+        "message": f"🚨 EMERGENCY (L4): Extreme monsoon cell injected ({body.peak_mm_h} mm/h) over {body.district}! Evacuate steep slopes immediately.",
+    }
+    try:
+        await broadcast_event(alert_event)
+    except Exception:
+        pass
+
     try:
         if db is None:
             raise ValueError("PostgreSQL offline in demo mode")

@@ -283,12 +283,13 @@ object Api {
     val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
 
     private fun buildClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             val req = chain.request().newBuilder()
-                .header("Bypass-Tunnel-Remainder", "true")
-                .header("User-Agent", "BhuRakshak-AndroidApp/1.0")
+                .header("bypass-tunnel-reminder", "true")
+                .header("User-Agent", "BhrakshakField/1.0 (Android)")
                 .build()
             chain.proceed(req)
         }

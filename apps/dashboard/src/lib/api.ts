@@ -32,7 +32,7 @@ export function getSession(): DashSession | null {
 export async function login(email: string, password: string): Promise<DashSession> {
   const res = await fetch(`${getApiUrl()}/api/v1/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Bypass-Tunnel-Remainder": "true" },
+    headers: { "Content-Type": "application/json", "bypass-tunnel-reminder": "true" },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) throw new Error(`Login failed (${res.status})`);
@@ -61,7 +61,7 @@ export async function ensureToken(): Promise<string> {
 export async function apiGet<T>(path: string, token?: string): Promise<T> {
   const baseUrl = getApiUrl();
   const headers: Record<string, string> = {
-    "Bypass-Tunnel-Remainder": "true",
+    "bypass-tunnel-reminder": "true",
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 

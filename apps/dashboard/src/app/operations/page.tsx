@@ -384,7 +384,7 @@ function ReportsInbox() {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
-            "Bypass-Tunnel-Remainder": "true",
+            "bypass-tunnel-reminder": "true",
           },
         },
       );
