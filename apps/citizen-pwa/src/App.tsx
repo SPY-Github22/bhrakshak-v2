@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Icon, LEVEL_COLORS, LEVEL_NAMES } from "./icons";
+import { CitizenBeaconPanel } from "../../nearby-peers/src/components/CitizenBeaconPanel";
 import { LANGS, makeT, type LangCode } from "./i18n";
 import "./theme.css";
 
@@ -330,6 +331,9 @@ export default function CitizenApp() {
           <Icon name="call" size={14} /> {t("call_dc")}
         </a>
       </section>
+
+      {/* nearby-peer beacon — consent-gated "help rescuers find me" */}
+      <CitizenBeaconPanel apiUrl={API} demoLogin={{ email: "citizen@bhrakshak.in", password: "Citizen@123" }} />
 
       {/* shelters */}
       <section className="md-card md-rise" id="cz-shelters-anchor" style={{ animationDelay: ".26s" }}>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertsPanel, type LiveAlert } from "./components/AlertsPanel";
 import { BleCrowdPanel } from "./components/BleCrowdPanel";
 import { MeshRelayPanel } from "./components/MeshRelayPanel";
+import { PeopleNearbyPanel } from "../../nearby-peers/src/components/PeopleNearbyPanel";
 import { EdgeVisionInspector, type FissureAnalysisResult } from "./components/EdgeVisionInspector";
 import { RainGaugePanel } from "./components/RainGaugePanel";
 import { VoiceRecorder } from "./components/VoiceRecorder";
@@ -121,6 +122,7 @@ export default function App() {
           }} />
           <AlertsPanel online={online} onLiveAlert={handleLiveAlert} />
           <BleCrowdPanel token={getStoredToken()} zoneId={zone?.id ?? null} />
+          <PeopleNearbyPanel apiUrl={API} token={getStoredToken()} />
         </div>
       )}
 

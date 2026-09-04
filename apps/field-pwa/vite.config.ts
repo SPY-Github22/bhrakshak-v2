@@ -4,6 +4,10 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  server: {
+    // The nearby-peers feature module lives outside this app root (apps/nearby-peers)
+    fs: { allow: [".."] },
+  },
   plugins: [
     react(),
     VitePWA({

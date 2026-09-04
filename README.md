@@ -76,6 +76,7 @@ apps/worker    Celery beat: rainfall poll 15m · risk recompute 15m · seismic 1
                MQTT bridge for sensors/#  →  sensor_readings hypertable
 apps/dashboard Next.js 14 · TS · Tailwind · MapLibre GL · ECharts (SHAP waterfall)
 apps/field-pwa Vite PWA · Workbox offline · Dexie queue · idempotent batch sync
+apps/nearby-peers  Portable rescuer⇄citizen proximity discovery (Wi-Fi rendezvous + BLE beacon)
 apps/android   Native Android Kotlin app · Room offline queue · WorkManager sync
 ml/            ingest (dem/inventory/weather) · features · models A–E · backtest
                registry. Leave-one-district-out spatial CV. Offline synthetic mode.
