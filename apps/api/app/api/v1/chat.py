@@ -141,6 +141,11 @@ async def send_message(
     r = _redis()
     try:
         await _append_message(r, msg)
+    except Exception:
+        # Redis down (demo mode / degraded deployment): the message is still
+        # broadcast live below and returned to the sender — only cross-restart
+        # history is lost. Never fail the send itself.
+        pass
     finally:
         try:
             await r.aclose()

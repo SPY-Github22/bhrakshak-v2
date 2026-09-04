@@ -2,7 +2,7 @@ import logging
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -67,10 +67,26 @@ app.include_router(ws.router)  # websocket at /ws/live
 
 from fastapi.responses import FileResponse, JSONResponse
 
+_APK_CANDIDATES = (
+    "/home/sudpy/Landslide Proto/bhrakshak/bhrakshak-field-latest.apk",
+    "/home/sudpy/Landslide Proto/bhrakshak-v2/apps/android/bhrakshak-field-latest.apk",
+    "/home/sudpy/Landslide Proto/bhrakshak-v2/bhrakshak-field-latest.apk",
+)
+
+
 @app.get("/download/apk", tags=["ops"])
 async def download_apk():
-    apk_path = "/home/sudpy/Landslide Proto/bhrakshak/bhrakshak-field-latest.apk"
-    return FileResponse(apk_path, media_type="application/vnd.android.package-archive", filename="bhrakshak-field-latest.apk")
+    """Serve the pre-built field APK from whichever copy exists on disk."""
+    from pathlib import Path
+
+    for candidate in _APK_CANDIDATES:
+        p = Path(candidate)
+        if p.is_file():
+            return FileResponse(
+                str(p), media_type="application/vnd.android.package-archive",
+                filename="bhrakshak-field-latest.apk",
+            )
+    raise HTTPException(status_code=404, detail="no APK artifact found on server")
 
 
 @app.get("/health", tags=["ops"])

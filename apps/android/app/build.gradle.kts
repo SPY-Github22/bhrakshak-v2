@@ -15,9 +15,9 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
-        // Fixed public cloud tunnel URL
-        buildConfigField("String", "API_BASE_URL", "\"https://bhrakshak-api-demo.loca.lt\"")
-        buildConfigField("String", "WS_URL", "\"wss://bhrakshak-api-demo.loca.lt/ws/live\"")
+        // Local emulator loopback (adb reverse tcp:8000 -> host:8000)
+        buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8000\"")
+        buildConfigField("String", "WS_URL", "\"ws://127.0.0.1:8000/ws/live\"")
     }
 
     buildTypes {

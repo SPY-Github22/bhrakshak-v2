@@ -252,19 +252,25 @@ async def analyze_photo(
 
     # Attach the AI verdict to the report if the client already created one
     # with this photo's hash in media_refs (PWA computes sha1 as media key).
+    # The lookup is best-effort: with the database unreachable (demo mode /
+    # degraded deployment) the verdict must still reach the client — the
+    # attachment can happen on a later call once the DB is back.
     import hashlib
 
     media_key = f"sha1:{hashlib.sha1(data).hexdigest()}"
-    row = (
-        await db.execute(
-            select(CitizenReport).where(CitizenReport.media_refs.any(media_key)).order_by(
-                CitizenReport.created_at.desc()
-            ).limit(1)
-        )
-    ).scalar_one_or_none()
-    if row is not None:
-        row.ai_analysis = out
-        await db.commit()
+    try:
+        row = (
+            await db.execute(
+                select(CitizenReport).where(CitizenReport.media_refs.any(media_key)).order_by(
+                    CitizenReport.created_at.desc()
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            row.ai_analysis = out
+            await db.commit()
+    except Exception as exc:  # DB down / write failed — never fail the upload
+        log.warning("analyze-photo: verdict attach skipped (db unavailable): %s", exc)
 
     out["media_key"] = media_key
     return out

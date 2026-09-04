@@ -84,6 +84,9 @@ class MainActivity : AppCompatActivity() {
     private var lastZones: List<ZoneOut> = emptyList()
     private var pendingPhotoFile: File? = null
     private var pendingPhotoPath: String? = null
+    private var pendingAiVerdict: String? = null   // POSITIVE | POSSIBLE | NEGATIVE
+    private var pendingAiProb: Double? = null
+    private var pendingMediaKey: String? = null    // sha1:<hex> — links photo -> report on sync
     private var chatJob: Job? = null
 
     private val prefs by lazy { getSharedPreferences("bhrakshak_cache", Context.MODE_PRIVATE) }
@@ -324,22 +327,40 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(button("Submit & Sync Hazard Report", 0xFFEA580C.toInt()) {
             val category = spinner.selectedItem as String
+            val aiVerdict = pendingAiVerdict
+            val aiProb = pendingAiProb
+            val mediaKey = pendingMediaKey
             getLocationAndThen { lat, lon ->
                 val la = lat ?: lastLat ?: 24.88
                 val lo = lon ?: lastLon ?: 93.72
                 lifecycleScope.launch {
+                    val cid = java.util.UUID.randomUUID().toString()
                     db.queueDao().enqueue(
                         QueuedReport(
+                            clientId = cid,
                             category = category,
                             lat = la, lon = lo,
                             description = desc.text.toString().ifBlank { null },
                             takenAt = nowIso(),
                             photoPath = pendingPhotoPath,
+                            aiVerdict = aiVerdict,
+                            aiProbability = aiProb,
+                            mediaKey = mediaKey,
                         )
                     )
+                    // If the Model V pre-screen lands after submit (slow
+                    // network), attach the verdict to the just-queued row.
+                    if (aiVerdict == null && pendingAiVerdict != null) {
+                        db.queueDao().attachVerdict(
+                            cid, pendingAiVerdict!!,
+                            pendingAiProb ?: 0.0, pendingMediaKey,
+                        )
+                    }
                     SyncWorker.triggerNow(applicationContext)
                     Toast.makeText(this@MainActivity, "Report Sent! Model V AI Verified & Synced to PC Command Center ✓", Toast.LENGTH_LONG).show()
-                    desc.setText(""); pendingPhotoPath = null; photoState.text = "no photo"
+                    desc.setText(""); pendingPhotoPath = null
+                    pendingAiVerdict = null; pendingAiProb = null; pendingMediaKey = null
+                    photoState.text = "no photo"
                 }
             }
         })
@@ -719,6 +740,7 @@ class MainActivity : AppCompatActivity() {
         val dir = File(filesDir, "photos").apply { mkdirs() }
         val file = File(dir, "IMG_${System.currentTimeMillis()}.jpg")
         pendingPhotoFile = file
+        pendingAiVerdict = null; pendingAiProb = null; pendingMediaKey = null
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         cameraLauncher.launch(intent)
         onDone(file)
@@ -736,15 +758,29 @@ class MainActivity : AppCompatActivity() {
                 photo = part, lat = lat, lon = lon, takenAt = nowIso(),
                 token = "Bearer $token",
             )
+            // Persist the verdict + sha1 media key so the queued report can
+            // carry them in media_refs — that is how the server attaches the
+            // AI verdict to the synced report (API contract §offline).
+            pendingAiVerdict = verdict.verdict
+            pendingAiProb = verdict.probability
+            pendingMediaKey = verdict.mediaKey ?: "sha1:" + sha1Hex(bytes)
             Toast.makeText(
                 this,
                 "AI pre-screen: ${verdict.verdict} (${(verdict.probability * 100).toInt()}%)${verdict.gpsMismatchM?.let { " Â· GPS mismatch ${it.toInt()} m" } ?: ""}",
                 Toast.LENGTH_LONG,
             ).show()
         } catch (e: Exception) {
+            // Offline at capture time: still compute the sha1 media key so the
+            // queued report references this exact photo; the verdict attaches
+            // when the image is uploaded later.
+            pendingMediaKey = "sha1:" + sha1Hex(bytes)
             Toast.makeText(this, "Offline â€” photo queued, AI verdict will attach at sync", Toast.LENGTH_SHORT).show()
         }
     }
+
+    private fun sha1Hex(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-1").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
 
     // ------------------------------------------------------------------ location
     private fun restoreLastLocation() {
