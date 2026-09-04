@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingAiProb: Double? = null
     private var pendingMediaKey: String? = null    // sha1:<hex> — links photo -> report on sync
     private var chatJob: Job? = null
+    private var riskJob: Job? = null
 
     private val prefs by lazy { getSharedPreferences("bhrakshak_cache", Context.MODE_PRIVATE) }
 
@@ -186,6 +187,8 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ login
     private fun showLogin() {
+        chatJob?.cancel(); chatJob = null
+        riskJob?.cancel(); riskJob = null
         root.removeAllViews()
         root.addView(title("Bhu"))
         root.addView(TextView(this).apply {
@@ -254,6 +257,7 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ home
     private fun showHome() {
         chatJob?.cancel(); chatJob = null
+        riskJob?.cancel(); riskJob = null
         root.removeAllViews()
         val email = TokenStore.email(this) ?: "user"
         root.addView(title("BhuRakshak Field"))
@@ -313,6 +317,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         refreshRisk(riskNow)
+
+        riskJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(3000L)
+                refreshRisk(riskNow)
+            }
+        }
 
         root.addView(button("I'M SAFE — check in", 0xFF059669.toInt()) { safeCheckin() })
         root.addView(button("SAFEST ROUTE (pathway model)", 0xFF0284C7.toInt()) { showSafeRoute() })

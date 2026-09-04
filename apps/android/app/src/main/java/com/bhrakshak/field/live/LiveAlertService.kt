@@ -166,6 +166,12 @@ class LiveAlertService : LifecycleService() {
         connect()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val res = super.onStartCommand(intent, flags, startId)
+        connect()
+        return res
+    }
+
     override fun onDestroy() {
         socket?.close(1000, "app stopped")
         socket = null
