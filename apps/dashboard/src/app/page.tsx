@@ -65,6 +65,27 @@ export default function CommandCenter() {
     }
   }
 
+  async function resetStorm() {
+    setInjecting(true);
+    try {
+      const login = await fetch(`${endpoints.API}/api/v1/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "admin@bhrakshak.in", password: "Admin@123" }),
+      }).then((r) => r.json());
+      await fetch(`${endpoints.API}/api/v1/demo/reset-storm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${login.access_token}` },
+      });
+      setDemoMode(false);
+      setTimeout(() => window.location.reload(), 1500);
+    } catch {
+      alert("Storm reset failed — is the API up at :8000?");
+    } finally {
+      setInjecting(false);
+    }
+  }
+
   return (
     <>
       <MapView />
@@ -96,6 +117,10 @@ export default function CommandCenter() {
             ) : (
               "⛈ Inject Rain"
             )}
+          </Button>
+
+          <Button variant="outline" size="sm" onClick={() => resetStorm()} disabled={injecting} className="border-emerald-700 bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900">
+            🧹 Reset All
           </Button>
         </div>
 

@@ -57,9 +57,8 @@ class LiveAlertService : LifecycleService() {
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
         val distKm = r * c
 
-        // If location is simulated or district matches, allow up to 150 km radius
-        val maxDist = if (isSimulated) 150.0 else 100.0
-        return distKm <= maxDist
+        // Always allow if within 150 km, or if simulated location is active
+        return isSimulated || distKm <= 150.0
     }
 
     private val listener = object : WebSocketListener() {
@@ -80,6 +79,13 @@ class LiveAlertService : LifecycleService() {
                             )
                         }
                     }
+                    "allclear" -> {
+                        notify(
+                            "🟢 ${obj.optString("name", "All Clear")}",
+                            obj.optString("message", "All clear issued for district"),
+                            notifId = "allclear".hashCode(),
+                        )
+                    }
                     "ndrf_message" -> notify(
                         "NDRF: ${obj.optString("from_station")}",
                         obj.optString("text"),
@@ -90,7 +96,6 @@ class LiveAlertService : LifecycleService() {
                         obj.optString("message"),
                         notifId = obj.optString("id").hashCode(),
                     )
-                    // heartbeat / risk_diff / sensor: silent
                 }
             }
         }
@@ -105,13 +110,13 @@ class LiveAlertService : LifecycleService() {
     }
 
     private fun connect() {
+        socket?.close(1000, "reconnecting")
         val request = Request.Builder().url(ApiConfig.wsUrl).build()
         socket = Api.wsClient.newWebSocket(request, listener)
     }
 
     private fun scheduleReconnect() {
-        if (retry > 10) return // give up after ~1 h of backoff; relaunch reconnects
-        val delayMs = 1000L shl retry.coerceAtMost(10)
+        val delayMs = minOf(1000L shl retry.coerceAtMost(5), 30000L)
         retry += 1
         lifecycleScope.launch {
             delay(delayMs)
@@ -128,24 +133,7 @@ class LiveAlertService : LifecycleService() {
             .build()
 
     private fun notify(title: String, body: String, notifId: Int) {
-        val intent = Intent(this, MainActivity::class.java)
-        val pending = PendingIntent.getActivity(
-            this, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val notification = NotificationCompat.Builder(this, CHANNEL_ALERTS)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setContentIntent(pending)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVibrate(longArrayOf(0, 500, 200, 500))
-            .setAutoCancel(true)
-            .build()
-        runCatching { NotificationManagerCompat.from(this).notify(notifId, notification) }
+        postAlertNotification(this, title, body, notifId)
     }
 
     override fun onCreate() {
@@ -160,11 +148,6 @@ class LiveAlertService : LifecycleService() {
                 vibrationPattern = longArrayOf(0, 500, 200, 500)
             }
             manager.createNotificationChannel(alertChannel)
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ONGOING, "Live connection", NotificationManager.IMPORTANCE_MIN,
-                ),
-            )
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ONGOING, "Live connection", NotificationManager.IMPORTANCE_MIN,
@@ -190,8 +173,8 @@ class LiveAlertService : LifecycleService() {
     }
 
     companion object {
-        private const val CHANNEL_ALERTS = "alerts"
-        private const val CHANNEL_ONGOING = "live_ongoing"
+        const val CHANNEL_ALERTS = "alerts"
+        const val CHANNEL_ONGOING = "live_ongoing"
         private const val ONGOING_ID = 1001
 
         fun start(ctx: android.content.Context) {
@@ -199,6 +182,42 @@ class LiveAlertService : LifecycleService() {
                 ContextCompat.startForegroundService(
                     ctx, Intent(ctx, LiveAlertService::class.java),
                 )
+            }
+        }
+
+        fun postAlertNotification(ctx: android.content.Context, title: String, body: String, notifId: Int = title.hashCode()) {
+            runCatching {
+                val manager = ctx.getSystemService(NOTIFICATION_SERVICE) as? NotificationManager
+                if (manager != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    val alertChannel = NotificationChannel(
+                        CHANNEL_ALERTS, "Landslide alerts", NotificationManager.IMPORTANCE_HIGH,
+                    ).apply {
+                        description = "Emergency landslide warnings and evacuation alerts"
+                        enableVibration(true)
+                        vibrationPattern = longArrayOf(0, 500, 200, 500)
+                    }
+                    manager.createNotificationChannel(alertChannel)
+                }
+
+                val intent = Intent(ctx, MainActivity::class.java)
+                val pending = PendingIntent.getActivity(
+                    ctx, 0, intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                val notification = NotificationCompat.Builder(ctx, CHANNEL_ALERTS)
+                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                    .setContentIntent(pending)
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setDefaults(NotificationCompat.DEFAULT_ALL)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setVibrate(longArrayOf(0, 500, 200, 500))
+                    .setAutoCancel(true)
+                    .build()
+
+                NotificationManagerCompat.from(ctx).notify(notifId, notification)
             }
         }
     }

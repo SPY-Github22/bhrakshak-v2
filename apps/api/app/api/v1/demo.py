@@ -153,3 +153,35 @@ async def replay_event(event: str = "noney_2022", _user=Depends(require_roles(*A
         if event in data.get("events", {}):
             return {"event": event, **data["events"][event]}
     return {"event": event, "timeline": [], "note": "fixture missing - run make data"}
+
+
+@router.post("/reset-storm")
+async def reset_storm(
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(require_roles(*ADMIN_ONLY)),
+):
+    """Reset all synthetic rainfall observations and set all zone risk levels back to Normal (L0)."""
+    from sqlalchemy import delete, update
+    from app.models import RiskCell
+
+    allclear_event = {
+        "type": "allclear",
+        "level": 0,
+        "name": "All Clear — Demo Reset",
+        "message": "🟢 All Clear: Synthetic storm cleared. All districts returned to Normal.",
+    }
+    try:
+        await broadcast_event(allclear_event)
+    except Exception:
+        pass
+
+    try:
+        if db is not None:
+            await db.execute(delete(RainfallObs))
+            await db.execute(update(RiskCell).values(hazard_level=0, driver={"drivers": []}))
+            await db.commit()
+    except Exception:
+        pass
+
+    return {"demo_mode": False, "status": "all_clear_reset_success"}
+

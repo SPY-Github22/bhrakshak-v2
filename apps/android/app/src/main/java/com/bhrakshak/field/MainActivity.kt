@@ -409,17 +409,30 @@ class MainActivity : AppCompatActivity() {
                     var zones: List<ZoneOut> = emptyList()
                     if (la != null && lo != null) {
                         zones = Api.service.zones(
-                            bbox = "${lo - 0.05},${la - 0.05},${lo + 0.05},${la + 0.05}",
+                            bbox = "${lo - 0.25},${la - 0.25},${lo + 0.25},${la + 0.25}",
                             token = token?.let { "Bearer $it" },
                         )
                     }
                     if (zones.isEmpty()) {
-                        zones = Api.service.zones(token = token?.let { "Bearer $it" })
+                        val allZones = Api.service.zones(token = token?.let { "Bearer $it" })
+                        val targetDistrict = when (prefs.getInt("simulated_location_index", -1)) {
+                            0 -> "Noney"
+                            1 -> "East Khasi Hills"
+                            2 -> "Aizawl"
+                            3 -> "Gangtok"
+                            else -> null
+                        }
+                        zones = if (targetDistrict != null) {
+                            allZones.filter { it.district.equals(targetDistrict, ignoreCase = true) }
+                        } else {
+                            allZones
+                        }
                     }
                     lastZones = zones
                     cacheZones(zones)
                     if (zones.isEmpty()) {
-                        view.text = "🟢 NORMAL — monitoring active over pilot districts"
+                        view.text = "🟢 NORMAL — monitoring active around location"
+                        prefs.edit().remove("last_risk").apply()
                         return@launch
                     }
                     val worst = zones.maxBy { it.hazardLevel }
@@ -429,10 +442,19 @@ class MainActivity : AppCompatActivity() {
                         .putString("last_risk", text)
                         .putLong("last_risk_ts", System.currentTimeMillis())
                         .apply()
+
+                    // Trigger local heads-up notification if hazard level >= 2
+                    if (worst.hazardLevel >= 2) {
+                        LiveAlertService.postAlertNotification(
+                            this@MainActivity,
+                            "⚠ L${worst.hazardLevel} ${worst.name}",
+                            text,
+                            notifId = worst.zoneCode.hashCode()
+                        )
+                    }
                 } catch (e: Exception) {
-                    val cached = prefs.getString("last_risk", null)
                     val msg = e.localizedMessage ?: e.message ?: "network error"
-                    view.text = cached?.let { "ONLINE DEMO — $it" } ?: "🟢 NORMAL — monitoring active ($msg)"
+                    view.text = "🟢 NORMAL — monitoring active ($msg)"
                 }
             }
         }
