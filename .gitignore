@@ -22,6 +22,8 @@ node_modules/
 **/node_modules/
 apps/dashboard/node_modules
 apps/field-pwa/node_modules
+apps/citizen-pwa/node_modules
+apps/nearby-peers/node_modules
 *.db
 .next/
 dist/
@@ -33,3 +35,4 @@ __pycache__/
 apps/android/app/build/
 apps/android/.gradle/
 apps/dashboard/tsconfig.tsbuildinfo
+data/uploads/

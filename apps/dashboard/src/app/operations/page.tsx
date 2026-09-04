@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, endpoints, ensureToken } from "@/lib/api";
 import { LEVEL_COLORS, LEVEL_NAMES, cn } from "@/lib/utils";
-import type { AlertRow, PriorityRow } from "@/lib/types";
+import type { AlertRow, PriorityRow, ReportItem } from "@/lib/types";
+import { ImageReportCard } from "@/components/reports/ImageReportCard";
 
 type Tab = "queue" | "alerts" | "reports";
 
@@ -399,6 +400,24 @@ function ReportsInbox() {
     }
   };
 
+  const handleReanalyze = async (id: string) => {
+    try {
+      const token = await ensureToken();
+      const res = await fetch(`${endpoints.API}/api/v1/images/${id}/analyze`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "bypass-tunnel-reminder": "true",
+        },
+      });
+      if (res.ok) {
+        load();
+      }
+    } catch (err) {
+      console.error("Re-analyze error:", err);
+    }
+  };
+
   if (!reports) return <SkeletonRows />;
 
   return (
@@ -412,111 +431,28 @@ function ReportsInbox() {
         </p>
       </div>
 
-      {reports.map((r, i) => {
-        const status = verifiedIds[r.id] || r.status || "pending";
-        return (
-          <div key={r.id || i} className="rounded-xl border border-edge bg-panel p-4 shadow-lg">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-orange-950/60 ring-1 ring-orange-700/50">
-                  <Camera size={20} className="text-orange-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded bg-orange-600/20 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-orange-400 ring-1 ring-orange-600/40">
-                      {r.category || "slope_movement"}
-                    </span>
-                    <span className="text-xs text-muted">
-                      Role: <b className="text-slate-200">{r.role || "field_responder"}</b> · {r.created_at ? new Date(r.created_at).toLocaleTimeString() : "Just now"}
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-sm font-medium leading-snug text-slate-100">
-                    {r.description || "Fresh slope tension cracks & loose soil movement reported by field team."}
-                  </p>
-                  <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-[11px] text-slate-400">
-                    <span>📍 Lat: <b>{r.lat != null ? Number(r.lat).toFixed(4) : "n/a"}</b>, Lon: <b>{r.lon != null ? Number(r.lon).toFixed(4) : "n/a"}</b></span>
-                    <span>DUPs Merged: <b>{r.dup_count || 0}</b></span>
-                    {r.exif_geo_ok === true && (
-                      <span className="text-emerald-400 font-semibold">✓ EXIF Geo-Match Verified</span>
-                    )}
-                    {r.exif_geo_ok === false && (
-                      <span className="text-amber-400 font-semibold">⚠ EXIF GPS mismatch</span>
-                    )}
-                    {r.exif_geo_ok == null && (
-                      <span className="text-slate-500">EXIF geo not checked</span>
-                    )}
-                  </div>
-                </div>
-              </div>
+      {verifyError && (
+        <div className="rounded-lg border border-red-800 bg-red-950/80 p-3 text-xs text-red-300">
+          {verifyError}
+        </div>
+      )}
 
-              <div className="flex items-center gap-2">
-                {status === "verified" ? (
-                  <span className="rounded-lg bg-emerald-950 px-3 py-1.5 text-xs font-bold text-emerald-400 ring-1 ring-emerald-700">
-                    ✓ Verified by DC
-                  </span>
-                ) : status === "rejected" ? (
-                  <span className="rounded-lg bg-red-950 px-3 py-1.5 text-xs font-bold text-red-400 ring-1 ring-red-700">
-                    ✕ Rejected False Alarm
-                  </span>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => handleVerify(r.id, "verified")}
-                      className="rounded-lg border border-emerald-700 bg-emerald-950/80 px-3.5 py-1.5 text-xs font-bold text-emerald-300 transition-all hover:bg-emerald-900 hover:text-white shadow-md shadow-emerald-950"
-                    >
-                      ✅ Verify Report
-                    </button>
-                    <button
-                      onClick={() => handleVerify(r.id, "rejected")}
-                      className="rounded-lg border border-red-900 bg-red-950/60 px-3.5 py-1.5 text-xs font-semibold text-red-400 transition-all hover:bg-red-900 hover:text-white"
-                    >
-                      ✕ Reject
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {r.ai_analysis ? (
-              <div className="mt-3.5 rounded-lg border border-white/10 bg-black/50 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-orange-400">
-                    Model V AI Verdict:{" "}
-                    <span className={cn(
-                      r.ai_analysis.verdict === "POSITIVE"
-                        ? "text-emerald-400"
-                        : r.ai_analysis.verdict === "POSSIBLE"
-                          ? "text-amber-400"
-                          : "text-slate-400",
-                    )}>
-                      {r.ai_analysis.verdict} ({Math.round((r.ai_analysis.probability ?? 0) * 100)}% confidence)
-                    </span>
-                  </span>
-                  {(r.ai_analysis.flags ?? []).length > 0 && (
-                    <span className="text-[10px] text-amber-400 font-bold">
-                      ⚠ {r.ai_analysis.flags.join(" · ")}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-[11px] text-slate-300">
-                  {r.ai_analysis.gps_mismatch_m != null
-                    ? `EXIF GPS delta ${r.ai_analysis.gps_mismatch_m} m · `
-                    : "No EXIF GPS in image · "}
-                  {r.ai_analysis.signature
-                    ? `fresh-soil ${(r.ai_analysis.signature.fresh_soil_frac * 100).toFixed(1)}% · scarp-edge energy ${(r.ai_analysis.signature.horizontal_edge_energy ?? 0).toFixed(2)}`
-                    : "pixel signature unavailable"}
-                </p>
-              </div>
-            ) : (
-              <div className="mt-3.5 rounded-lg border border-dashed border-white/10 bg-black/30 p-3">
-                <span className="text-[11px] text-slate-500">
-                  No photo analysis attached to this report (photo optional — verdict appears here when a Model V pre-screen runs on the device).
-                </span>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {reports.length === 0 ? (
+        <EmptyState
+          title="No hazard reports pending"
+          body="Field rescue teams or citizens uploading geo-photos from the Android APK or PWA will stream directly into this command inbox."
+        />
+      ) : (
+        reports.map((r, i) => (
+          <ImageReportCard
+            key={r.id || i}
+            report={r}
+            apiBaseUrl={endpoints.API}
+            onVerify={handleVerify}
+            onReanalyze={handleReanalyze}
+          />
+        ))
+      )}
     </div>
   );
 }

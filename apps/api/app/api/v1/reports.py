@@ -138,6 +138,7 @@ async def _upsert_report(db: AsyncSession, item: ReportIn, user: User, sync_batc
         geom=WKTElement(f"POINT({item.lon} {item.lat})", srid=4326),
         description=item.description,
         media_refs=item.media_refs or [],
+        image_url=item.image_url,
         taken_at=item.taken_at,
         sync_batch=sync_batch,
         exif_geo_ok=item.exif_geo_ok,
@@ -166,6 +167,18 @@ DEMO_REPORTS: list[ReportOut] = [
         created_at=datetime.now(timezone.utc) - timedelta(minutes=20),
         lat=24.8812,
         lon=93.7235,
+        image_url=None,
+        ai_analysis={
+            "verdict": "POSITIVE",
+            "probability": 0.88,
+            "gps_mismatch_m": 12.4,
+            "flags": ["high_shear_risk"],
+            "signature": {
+                "fresh_soil_frac": 0.46,
+                "horizontal_edge_energy": 1.24,
+                "vegetation_frac": 0.18,
+            },
+        },
     ),
     ReportOut(
         id=uuid.UUID("00000000-0000-0000-0000-000000000202"),
@@ -180,6 +193,18 @@ DEMO_REPORTS: list[ReportOut] = [
         created_at=datetime.now(timezone.utc) - timedelta(hours=1),
         lat=25.2750,
         lon=91.7310,
+        image_url=None,
+        ai_analysis={
+            "verdict": "POSSIBLE",
+            "probability": 0.58,
+            "gps_mismatch_m": None,
+            "flags": ["turbid_water_surge"],
+            "signature": {
+                "fresh_soil_frac": 0.28,
+                "horizontal_edge_energy": 0.62,
+                "vegetation_frac": 0.35,
+            },
+        },
     ),
 ]
 
@@ -259,6 +284,14 @@ async def analyze_photo(
 
     media_key = f"sha1:{hashlib.sha1(data).hexdigest()}"
     try:
+        from app.api.v1.images import _mod
+        image_store = _mod.image_store
+        stored = image_store.save(data, prefix="prescreen_")
+        out["image_url"] = stored.url
+    except Exception as e:
+        log.warning("analyze-photo: image save skipped: %s", e)
+
+    try:
         row = (
             await db.execute(
                 select(CitizenReport).where(CitizenReport.media_refs.any(media_key)).order_by(
@@ -268,6 +301,8 @@ async def analyze_photo(
         ).scalar_one_or_none()
         if row is not None:
             row.ai_analysis = out
+            if out.get("image_url") and not row.image_url:
+                row.image_url = out["image_url"]
             await db.commit()
     except Exception as exc:  # DB down / write failed — never fail the upload
         log.warning("analyze-photo: verdict attach skipped (db unavailable): %s", exc)

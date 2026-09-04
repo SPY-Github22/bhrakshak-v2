@@ -34,6 +34,7 @@ import com.google.android.gms.location.LocationServices
 import com.bhrakshak.field.data.Api
 import com.bhrakshak.field.data.ApiConfig
 import com.bhrakshak.field.data.BhuDb
+import com.bhrakshak.field.data.ImageUploadHelper
 import com.bhrakshak.field.data.LoginIn
 import com.bhrakshak.field.data.QueuedReport
 import com.bhrakshak.field.data.SafeCheckin
@@ -57,7 +58,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * Single-activity shell. Every screen is REAL â€” each one calls the same
+ * Single-activity shell. Every screen is REAL — each one calls the same
  * FastAPI backend the dashboard and PWA use, and every fetch result is
  * cached to app storage so the screen still renders last-known state with
  * zero connectivity (the NER valley case).
@@ -108,6 +109,27 @@ class MainActivity : AppCompatActivity() {
         val bmp = result.data?.extras?.get("data") as? Bitmap
         if (bmp != null) {
             FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+        }
+        if (!file.exists() || file.length() == 0L) return@registerForActivityResult
+        // Downsample/compress to ensure optimal transmission size
+        ImageUploadHelper.compressImage(file, file)
+        pendingPhotoPath = file.absolutePath
+        getLocationAndThen { lat, lon ->
+            lifecycleScope.launch { preScreenPhoto(file, lat, lon) }
+        }
+    }
+
+    private val galleryLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val file = pendingPhotoFile
+        pendingPhotoFile = null
+        val uri = result.data?.data
+        if (result.resultCode != RESULT_OK || file == null || uri == null) return@registerForActivityResult
+        val tempRaw = File(file.parentFile, "RAW_${file.name}")
+        if (ImageUploadHelper.copyUriToFile(this, uri, tempRaw)) {
+            ImageUploadHelper.compressImage(tempRaw, file)
+            tempRaw.delete()
         }
         if (!file.exists() || file.length() == 0L) return@registerForActivityResult
         pendingPhotoPath = file.absolutePath
@@ -390,14 +412,21 @@ class MainActivity : AppCompatActivity() {
             )
         }
         root.addView(spinner)
-        val desc = EditText(this).apply { hint = "what do you see?" }
+        val desc = EditText(this).apply { hint = "what do you see? (your message for field rescue)" }
         root.addView(desc)
 
         val photoState = mono("no photo (photo optional, pre-screened by Model V AI)")
         root.addView(photoState)
-        root.addView(button("Take photo", 0xFF334155.toInt()) {
-            takePhoto { f -> photoState.text = "photo attached: ${f.name} (Model V AI analyzed)" }
-        })
+        val photoBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(button("📷 Take photo", 0xFF334155.toInt()) {
+                takePhoto { f -> photoState.text = "photo attached: ${f.name} (Model V AI analyzed)" }
+            }.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+            addView(button("🖼️ Gallery", 0xFF1E293B.toInt()) {
+                pickGallery { f -> photoState.text = "photo attached: ${f.name} (Model V AI analyzed)" }
+            }.apply { layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+        }
+        root.addView(photoBar)
 
         root.addView(button("Submit & Sync Hazard Report", 0xFFEA580C.toInt()) {
             val category = spinner.selectedItem as String
@@ -839,6 +868,15 @@ class MainActivity : AppCompatActivity() {
         pendingAiVerdict = null; pendingAiProb = null; pendingMediaKey = null
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         cameraLauncher.launch(intent)
+        onDone(file)
+    }
+
+    private fun pickGallery(onDone: (File) -> Unit) {
+        val dir = File(filesDir, "photos").apply { mkdirs() }
+        val file = File(dir, "IMG_${System.currentTimeMillis()}.jpg")
+        pendingPhotoFile = file
+        pendingAiVerdict = null; pendingAiProb = null; pendingMediaKey = null
+        galleryLauncher.launch(ImageUploadHelper.createGalleryIntent())
         onDone(file)
     }
 

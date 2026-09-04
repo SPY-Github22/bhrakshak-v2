@@ -38,6 +38,7 @@ class CitizenReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # Model V (geo-verified photo AI) output — written by POST /reports/analyze-photo
     ai_analysis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class Shelter(Base):

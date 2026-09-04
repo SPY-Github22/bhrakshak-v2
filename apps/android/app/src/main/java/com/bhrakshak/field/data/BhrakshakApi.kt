@@ -208,6 +208,21 @@ data class PhotoVerdict(
     @SerialName("gps_mismatch_m") val gpsMismatchM: Double? = null,
     val flags: List<String> = emptyList(),
     @SerialName("media_key") val mediaKey: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
+)
+
+@Serializable
+data class ImageUploadOut(
+    val status: String = "ok",
+    @SerialName("report_id") val reportId: String? = null,
+    val filename: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
+    @SerialName("size_bytes") val sizeBytes: Long? = null,
+    val category: String? = null,
+    val description: String? = null,
+    val lat: Double? = null,
+    val lon: Double? = null,
+    @SerialName("ai_analysis") val aiAnalysis: PhotoVerdict? = null,
 )
 
 @Serializable
@@ -288,6 +303,19 @@ interface BhrakshakApi {
         @Body msg: ChatMessageIn,
         @Header("Authorization") token: String,
     ): ChatMessageOut
+
+    @Multipart
+    @POST("api/v1/images/upload")
+    suspend fun uploadImageReport(
+        @Part photo: okhttp3.MultipartBody.Part,
+        @Part("description") description: okhttp3.RequestBody? = null,
+        @Part("category") category: okhttp3.RequestBody? = null,
+        @Part("lat") lat: okhttp3.RequestBody? = null,
+        @Part("lon") lon: okhttp3.RequestBody? = null,
+        @Part("client_id") clientId: okhttp3.RequestBody? = null,
+        @Part("taken_at") takenAt: okhttp3.RequestBody? = null,
+        @Header("Authorization") token: String? = null,
+    ): ImageUploadOut
 }
 
 // ---------------------------------------------------------------------------

@@ -53,11 +53,39 @@ export interface ZoneOut {
   prob_24h: number | null;
 }
 
+export interface ReportAiAnalysis {
+  verdict: "POSITIVE" | "POSSIBLE" | "NEGATIVE" | string;
+  probability?: number;
+  gps_mismatch_m?: number | null;
+  flags?: string[];
+  signature?: {
+    fresh_soil_frac?: number;
+    horizontal_edge_energy?: number;
+    vegetation_frac?: number;
+    rock_frac?: number;
+  };
+}
+
+export interface ReportItem {
+  id: string;
+  category: string;
+  role?: string | null;
+  description?: string | null;
+  status: string;
+  created_at: string;
+  lat?: number | null;
+  lon?: number | null;
+  dup_count?: number;
+  exif_geo_ok?: boolean | null;
+  image_url?: string | null;
+  ai_analysis?: ReportAiAnalysis | null;
+}
+
 export interface Dossier {
   zone: ZoneOut;
   rainfall_series: { ts: string; rain_1h: number | null; rain_24h: number | null; eff_rain?: number | null; soil_moisture?: number | null }[];
   sensors: { sensor_id: string; ts: string; soil_moisture: number | null }[];
-  reports: { id: string; category: string; status: string; created_at: string }[];
+  reports: ReportItem[];
   alerts: { level: number; fired_at: string; message: string }[];
   drivers: Driver[];
   historical_events: unknown[];

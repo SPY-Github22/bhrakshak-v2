@@ -72,6 +72,7 @@ class ReportIn(BaseModel):
     taken_at: datetime | None = None
     media_refs: list[str] = []
     exif_geo_ok: bool | None = None
+    image_url: str | None = None
 
 
 class SyncBatchIn(BaseModel):
@@ -103,6 +104,9 @@ class ReportOut(ORMModel):
     created_at: datetime
     lat: float | None = None
     lon: float | None = None
+    image_url: str | None = None
+    ai_analysis: dict | None = None
+    media_refs: list[str] = []
 
 
 # ---------- Alerts ----------

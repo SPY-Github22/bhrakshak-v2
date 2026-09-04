@@ -9,7 +9,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.api.v1 import alerts, analytics, auth, ble, briefing, chat, demo, evacuation, incident_command, ingest, logistics, mesh, nearby, public, reports, roads, ws, zones
+from app.api.v1 import (
+    alerts, analytics, auth, ble, briefing, chat, demo, evacuation,
+    images, incident_command, ingest, logistics, mesh, nearby, public, reports, roads, ws, zones
+)
 from app.core.config import settings
 
 
@@ -60,7 +63,7 @@ app.add_middleware(
 
 for r in (auth.router, zones.router, reports.router, alerts.router, roads.router,
           demo.router, analytics.router, briefing.router, ingest.router, logistics.router,
-          incident_command.router, evacuation.router, ble.router, mesh.router, nearby.router, public.router, chat.router):
+          incident_command.router, evacuation.router, ble.router, mesh.router, nearby.router, public.router, chat.router, images.router):
     app.include_router(r, prefix="/api/v1")
 app.include_router(ws.router)  # websocket at /ws/live
 

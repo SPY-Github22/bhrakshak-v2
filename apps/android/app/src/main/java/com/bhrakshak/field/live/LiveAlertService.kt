@@ -163,9 +163,15 @@ class LiveAlertService : LifecycleService() {
 
         fun start(ctx: android.content.Context) {
             runCatching {
-                ContextCompat.startForegroundService(
-                    ctx, Intent(ctx, LiveAlertService::class.java),
-                )
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    ctx.startService(Intent(ctx, LiveAlertService::class.java))
+                } else {
+                    ContextCompat.startForegroundService(
+                        ctx, Intent(ctx, LiveAlertService::class.java),
+                    )
+                }
+            }.onFailure {
+                runCatching { ctx.startService(Intent(ctx, LiveAlertService::class.java)) }
             }
         }
 

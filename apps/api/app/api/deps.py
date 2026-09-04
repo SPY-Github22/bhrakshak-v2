@@ -13,6 +13,18 @@ from app.models import Role, User
 bearer = HTTPBearer(auto_error=False)
 
 
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    if credentials is None:
+        return None
+    try:
+        return await get_current_user(credentials, db)
+    except HTTPException:
+        return None
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: AsyncSession = Depends(get_db),

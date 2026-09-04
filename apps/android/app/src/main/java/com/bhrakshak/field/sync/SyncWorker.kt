@@ -13,6 +13,10 @@ import com.bhrakshak.field.data.BhuDb
 import com.bhrakshak.field.data.ReportItem
 import com.bhrakshak.field.data.SyncBatchIn
 import com.bhrakshak.field.data.TokenStore
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -37,28 +41,70 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             ?: return Result.retry() // not logged in yet; try after login
 
         return try {
-            val out = Api.service.syncReports(
-                SyncBatchIn(
-                    batchId = UUID.randomUUID().toString(),
-                    // backend ReportIn requires lat/lon; queue rows always carry
-                    // them because the composer falls back to last-known fix
-                    reports = pending.map { r ->
-                        ReportItem(
-                            clientId = r.clientId,
-                            category = r.category,
-                            lat = r.lat,
-                            lon = r.lon,
-                            description = r.description,
-                            takenAt = r.takenAt,
-                            mediaRefs = listOfNotNull(r.mediaKey),
-                            exifGeoOk = true,
-                        )
-                    },
-                ),
-                token = "Bearer $token",
-            )
-            dao.markSynced(out.syncedIds)
-            dao.prune(System.currentTimeMillis() - 7L * 24 * 3600 * 1000)
+            val syncedIds = mutableListOf<String>()
+            val remaining = mutableListOf<com.bhrakshak.field.data.QueuedReport>()
+
+            // 1. Upload reports that have local photos via /api/v1/images/upload
+            for (r in pending) {
+                var uploaded = false
+                if (!r.photoPath.isNullOrBlank()) {
+                    val photoFile = File(r.photoPath)
+                    if (photoFile.exists() && photoFile.length() > 0L) {
+                        try {
+                            val part = MultipartBody.Part.createFormData(
+                                "photo", photoFile.name,
+                                photoFile.readBytes().toRequestBody("image/jpeg".toMediaTypeOrNull())
+                            )
+                            val textType = "text/plain".toMediaTypeOrNull()
+                            Api.service.uploadImageReport(
+                                photo = part,
+                                description = r.description?.toRequestBody(textType),
+                                category = r.category.toRequestBody(textType),
+                                lat = r.lat.toString().toRequestBody(textType),
+                                lon = r.lon.toString().toRequestBody(textType),
+                                clientId = r.clientId.toRequestBody(textType),
+                                takenAt = r.takenAt.toRequestBody(textType),
+                                token = "Bearer $token",
+                            )
+                            syncedIds.add(r.clientId)
+                            uploaded = true
+                        } catch (e: Exception) {
+                            // Upload failed; fallback to regular batch sync
+                        }
+                    }
+                }
+                if (!uploaded) {
+                    remaining.add(r)
+                }
+            }
+
+            // 2. Batch sync any remaining reports without images or that failed image upload
+            if (remaining.isNotEmpty()) {
+                val out = Api.service.syncReports(
+                    SyncBatchIn(
+                        batchId = UUID.randomUUID().toString(),
+                        reports = remaining.map { r ->
+                            ReportItem(
+                                clientId = r.clientId,
+                                category = r.category,
+                                lat = r.lat,
+                                lon = r.lon,
+                                description = r.description,
+                                takenAt = r.takenAt,
+                                mediaRefs = listOfNotNull(r.mediaKey),
+                                exifGeoOk = true,
+                            )
+                        },
+                    ),
+                    token = "Bearer $token",
+                )
+                syncedIds.addAll(out.syncedIds)
+            }
+
+            if (syncedIds.isNotEmpty()) {
+                dao.markSynced(syncedIds)
+                dao.prune(System.currentTimeMillis() - 7L * 24 * 3600 * 1000)
+            }
             Result.success()
         } catch (e: Exception) {
             Result.retry() // offline or 5xx; WorkManager backs off exponentially
