@@ -277,6 +277,11 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(locSpinner)
 
+        val savedPos = prefs.getInt("simulated_location_index", -1)
+        if (savedPos in 0..4) {
+            locSpinner.setSelection(savedPos)
+        }
+
         val riskNow = mono("📍 Fetching live risk at location...", 16f)
         root.addView(riskNow)
 
@@ -288,6 +293,19 @@ class MainActivity : AppCompatActivity() {
                     2 -> { isLocationSimulated = true; lastLat = 23.73; lastLon = 92.72 } // Aizawl
                     3 -> { isLocationSimulated = true; lastLat = 27.33; lastLon = 88.61 } // Gangtok
                     4 -> { isLocationSimulated = false }
+                }
+                if (isLocationSimulated && lastLat != null && lastLon != null) {
+                    prefs.edit()
+                        .putString("last_location", "$lastLat,$lastLon")
+                        .putInt("simulated_location_index", pos)
+                        .putBoolean("is_location_simulated", true)
+                        .apply()
+                } else {
+                    prefs.edit()
+                        .putInt("simulated_location_index", pos)
+                        .putBoolean("is_location_simulated", false)
+                        .apply()
+                    refreshLocation()
                 }
                 refreshRisk(riskNow)
             }
@@ -784,10 +802,14 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------------ location
     private fun restoreLastLocation() {
+        isLocationSimulated = prefs.getBoolean("is_location_simulated", false)
         val raw = prefs.getString("last_location", null) ?: return
         runCatching {
             val parts = raw.split(",")
-            lastLat = parts[0].toDouble(); lastLon = parts[1].toDouble()
+            if (parts.size >= 2) {
+                lastLat = parts[0].toDouble()
+                lastLon = parts[1].toDouble()
+            }
         }
     }
 

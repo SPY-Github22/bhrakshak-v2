@@ -41,6 +41,7 @@ class LiveAlertService : LifecycleService() {
         if (alat == 0.0 && alon == 0.0) return true
 
         val prefs = getSharedPreferences("bhrakshak_cache", MODE_PRIVATE)
+        val isSimulated = prefs.getBoolean("is_location_simulated", false)
         val rawLoc = prefs.getString("last_location", null) ?: return true
         val parts = rawLoc.split(",")
         if (parts.size < 2) return true
@@ -56,7 +57,9 @@ class LiveAlertService : LifecycleService() {
         val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
         val distKm = r * c
 
-        return distKm <= 75.0
+        // If location is simulated or district matches, allow up to 150 km radius
+        val maxDist = if (isSimulated) 150.0 else 100.0
+        return distKm <= maxDist
     }
 
     private val listener = object : WebSocketListener() {
@@ -136,6 +139,10 @@ class LiveAlertService : LifecycleService() {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(pending)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVibrate(longArrayOf(0, 500, 200, 500))
             .setAutoCancel(true)
             .build()
         runCatching { NotificationManagerCompat.from(this).notify(notifId, notification) }
@@ -145,9 +152,17 @@ class LiveAlertService : LifecycleService() {
         super.onCreate()
         runCatching {
             val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            val alertChannel = NotificationChannel(
+                CHANNEL_ALERTS, "Landslide alerts", NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Emergency landslide warnings and evacuation alerts"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
+            }
+            manager.createNotificationChannel(alertChannel)
             manager.createNotificationChannel(
                 NotificationChannel(
-                    CHANNEL_ALERTS, "Landslide alerts", NotificationManager.IMPORTANCE_HIGH,
+                    CHANNEL_ONGOING, "Live connection", NotificationManager.IMPORTANCE_MIN,
                 ),
             )
             manager.createNotificationChannel(
