@@ -82,6 +82,19 @@ data class BeaconPayload(
         out[0] = BeaconSpec.MAGIC.toByte()
         out[1] = BeaconSpec.VERSION.toByte()
         out[2] = ((if (hasGps) 1 else 0) or (if (needsHelp) 2 else 0) or 4).toByte()
+        ByteBuffer.wrap(out, 3, 2).order(ByteOrder.LITTLE_ENDIAN).putShort(seq.toShort())
+        for (i in 0 until 4) out[5 + i] = peerId.padEnd(8, '0').substring(i * 2, i * 2 + 2).toInt(16).toByte()
+        out[9] = role.toByte()
+        out[10] = ((batteryPct?.coerceIn(0, 100)) ?: 0xFF).toByte()
+        ByteBuffer.wrap(out, 11, 8).order(ByteOrder.LITTLE_ENDIAN).let {
+            it.putInt(((lat ?: 0.0) * 1e7).roundToInt())
+            it.putInt(((lon ?: 0.0) * 1e7).roundToInt())
+        }
+        out[19] = (accuracyM?.coerceIn(0, 255) ?: 0).toByte()
+        out[20] = BeaconSpec.crc8(out, 20).toByte()
+        return out
+    }
+}
 
 class BhrakshakBeacon(context: Context) {
 
@@ -197,19 +210,5 @@ class BhrakshakBeacon(context: Context) {
             lon = if (flags and 1 != 0) buf.getInt(15) / 1e7 else null,
             accuracyM = if (flags and 1 != 0) bytes[19].toInt() and 0xFF else null,
         )
-    }
-}
-
-        ByteBuffer.wrap(out, 3, 2).order(ByteOrder.LITTLE_ENDIAN).putShort(seq.toShort())
-        for (i in 0 until 4) out[5 + i] = peerId.padEnd(8, '0').substring(i * 2, i * 2 + 2).toInt(16).toByte()
-        out[9] = role.toByte()
-        out[10] = ((batteryPct?.coerceIn(0, 100)) ?: 0xFF).toByte()
-        ByteBuffer.wrap(out, 11, 8).order(ByteOrder.LITTLE_ENDIAN).let {
-            it.putInt(((lat ?: 0.0) * 1e7).roundToInt())
-            it.putInt(((lon ?: 0.0) * 1e7).roundToInt())
-        }
-        out[19] = (accuracyM?.coerceIn(0, 255) ?: 0).toByte()
-        out[20] = BeaconSpec.crc8(out, 20).toByte()
-        return out
     }
 }
