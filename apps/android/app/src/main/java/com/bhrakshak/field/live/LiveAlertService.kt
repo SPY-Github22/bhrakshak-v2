@@ -35,30 +35,8 @@ class LiveAlertService : LifecycleService() {
     private var retry = 0
 
     private fun isAlertNearUser(obj: JSONObject): Boolean {
-        if (!obj.has("lat") || !obj.has("lon")) return true
-        val alat = obj.optDouble("lat", 0.0)
-        val alon = obj.optDouble("lon", 0.0)
-        if (alat == 0.0 && alon == 0.0) return true
-
-        val prefs = getSharedPreferences("bhrakshak_cache", MODE_PRIVATE)
-        val isSimulated = prefs.getBoolean("is_location_simulated", false)
-        val rawLoc = prefs.getString("last_location", null) ?: return true
-        val parts = rawLoc.split(",")
-        if (parts.size < 2) return true
-        val dlat = parts[0].toDoubleOrNull() ?: return true
-        val dlon = parts[1].toDoubleOrNull() ?: return true
-
-        val r = 6371.0
-        val dLat = Math.toRadians(alat - dlat)
-        val dLon = Math.toRadians(alon - dlon)
-        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(Math.toRadians(dlat)) * Math.cos(Math.toRadians(alat)) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2)
-        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-        val distKm = r * c
-
-        // Always allow if within 150 km, or if simulated location is active
-        return isSimulated || distKm <= 150.0
+        // Guarantee 100% alert delivery for all emergency events
+        return true
     }
 
     private val listener = object : WebSocketListener() {

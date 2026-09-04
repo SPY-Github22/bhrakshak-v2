@@ -62,6 +62,17 @@ DEMO_PILOT_ZONES = [
     ZoneOut(id=uuid.UUID("00000000-0000-0000-0000-000000000006"), zone_code="SK-GAN-001", name="Gangtok Highway Sector KM 8", district="Gangtok", state="Sikkim", susc_mean=76.0, susc_p90=83.0, population=2500, road_km=16.8, hazard_level=2, prob_24h=0.39),
 ]
 
+def update_demo_zone_hazard(district: str, level: int = 4):
+    for z in DEMO_PILOT_ZONES:
+        if z.district and z.district.lower() == district.lower():
+            z.hazard_level = level
+            z.prob_24h = 0.95 if level >= 4 else 0.50
+
+def reset_demo_zones():
+    for z in DEMO_PILOT_ZONES:
+        z.hazard_level = 0
+        z.prob_24h = 0.05
+
 def _demo_zones(district: str | None = None, level_min: int | None = None) -> list[ZoneOut]:
     res = DEMO_PILOT_ZONES
     if district:

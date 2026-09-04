@@ -125,6 +125,9 @@ async def inject_rainfall_storm(
         except Exception:
             pass
 
+        from app.api.v1.zones import update_demo_zone_hazard
+        update_demo_zone_hazard(target_district, 4)
+
         escalated = [l for l in result["levels"] if l["level"] >= 2]
         return {
             "demo_mode": True,
@@ -135,6 +138,8 @@ async def inject_rainfall_storm(
             "levels": result["levels"],
         }
     except Exception:
+        from app.api.v1.zones import update_demo_zone_hazard
+        update_demo_zone_hazard(target_district, 4)
         return {
             "demo_mode": True,
             "district": body.district,
@@ -162,7 +167,10 @@ async def reset_storm(
 ):
     """Reset all synthetic rainfall observations and set all zone risk levels back to Normal (L0)."""
     from sqlalchemy import delete, update
+    from app.api.v1.zones import reset_demo_zones
     from app.models import RiskCell
+
+    reset_demo_zones()
 
     allclear_event = {
         "type": "allclear",
