@@ -14,3 +14,4 @@ export { NearbyService, type NearbyServiceOptions, type NearbyStatus } from "./n
 export { PeerNavigator, requestCompassPermission } from "./components/PeerNavigator.tsx";
 export { PeopleNearbyPanel } from "./components/PeopleNearbyPanel.tsx";
 export { CitizenBeaconPanel } from "./components/CitizenBeaconPanel.tsx";
+export { NearbyTacticalMap, type TacticalMapProps } from "./components/NearbyTacticalMap.tsx";

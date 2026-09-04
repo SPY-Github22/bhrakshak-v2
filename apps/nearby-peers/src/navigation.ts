@@ -2,7 +2,7 @@
    tests/selfcheck.ts. Deliberately no map routing: in a debris field the
    compass arrow + distance + vibration sonar is what gets you there. */
 
-import { bearingDeg, clamp, haversineMeters } from "./geo.ts";
+import { bearingDeg, clamp, haversineMeters, rssiToMeters } from "./geo.ts";
 import type { PeerInfo } from "./types.ts";
 
 export type GuidanceSector =
@@ -67,7 +67,7 @@ export function bearingTo(self: { lat: number; lon: number } | null, peer: PeerI
 
 export function distanceTo(self: { lat: number; lon: number } | null, peer: PeerInfo): number | null {
   if (self && peer.lat != null && peer.lon != null) return haversineMeters(self, { lat: peer.lat, lon: peer.lon });
-  return peer.distanceM; // RSSI estimate for BLE peers without coords
+  return peer.distanceM ?? (peer.rssi != null ? rssiToMeters(peer.rssi) : null);
 }
 
 export function guidanceText(rel: RelativeBearing, distanceM: number | null): string {

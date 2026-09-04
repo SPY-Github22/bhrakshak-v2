@@ -125,6 +125,7 @@ Tap any peer in the rescuer's **People Nearby** list → full-screen `PeerNaviga
 * **Distance countdown** + plain-language guidance ("Straight ahead · 120 m", "Turn around · 1.5 km").
 * **Vibration sonar** — buzzes on a 1.2 s cadence, pulse length grows as you close in, double-pulse under 25 m (works when you can't stare at the screen). Toggleable; the screen is kept awake via `WakeLock`.
 * **Radar view** — rescuer at center, peer as a blip at the live bearing. When the peer has no GPS fix (buried/indoor), shows an RSSI-derived range ring instead of a point.
+* **Tactical Multi-Citizen Map (`NearbyTacticalMap`)** — Interactive disaster-resilient vector map showing the rescuer's live GPS position, real-time magnetometer heading orientation cone, and ALL nearby citizens simultaneously. Draws active bearing vectors/lines from the rescuer directly to each citizen with distance callouts, SOS pulsing halos, zoom/pan controls, and North-Up / Head-Up compass rotation.
 * **RSSI warm/cold meter** — "🔥 WARMER / ❄ COLDER" trend between advertisements, the hot/cold cue for zero-GPS-fix peers.
 * **Signal-lost banner** — holds the last-known bearing if the peer is TTL-swept mid-search.
 * **Map handoff** (only when exact coords exist) — "🗺 OSM pin" opens an OpenStreetMap pin; "📍 Maps app" fires a `geo:` intent to the native maps app. No map tiles, no routing engine, no new dependencies — it works fully offline.

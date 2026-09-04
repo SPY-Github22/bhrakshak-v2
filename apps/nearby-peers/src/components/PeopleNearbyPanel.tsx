@@ -9,7 +9,8 @@ import { formatAge, formatDistance, compassArrow } from "../geo.ts";
 import { DEFAULT_RADIUS_M, MAX_RADIUS_M } from "../config.ts";
 import { NearbyService } from "../nearbyService.ts";
 import { bleScanSupported } from "../transports/bleTransport.ts";
-import { PeerNavigator, requestCompassPermission } from "./PeerNavigator";
+import { PeerNavigator, requestCompassPermission, useDeviceHeading } from "./PeerNavigator";
+import { NearbyTacticalMap } from "./NearbyTacticalMap";
 import type { PeerInfo } from "../types.ts";
 import type { SelfPos } from "./PeerNavigator";
 
@@ -38,21 +39,26 @@ export function PeopleNearbyPanel({
   const [radius, setRadius] = useState(Math.min(radiusM, MAX_RADIUS_M));
   const [targetId, setTargetId] = useState<string | null>(null);
   const [selfPos, setSelfPos] = useState<SelfPos | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const svcRef = useRef<NearbyService | null>(null);
   const radiusRef = useRef(radius);
   radiusRef.current = radius;
 
+  const { heading } = useDeviceHeading(running || targetId != null || viewMode === "map");
+
   useEffect(() => () => svcRef.current?.stop(), []);
 
-  /* keep self position fresh while navigating so the arrow tracks movement */
+  /* keep self position fresh while navigating or viewing tactical map */
   useEffect(() => {
-    if (!targetId) return;
-    const id = setInterval(() => {
+    if (!targetId && viewMode !== "map" && !running) return;
+    const update = () => {
       const p = svcRef.current?.status().position ?? null;
       setSelfPos(p);
-    }, 1_000);
+    };
+    update();
+    const id = setInterval(update, 1_000);
     return () => clearInterval(id);
-  }, [targetId]);
+  }, [targetId, viewMode, running]);
 
   async function toggle() {
     if (svcRef.current?.status().running) {
@@ -130,6 +136,52 @@ export function PeopleNearbyPanel({
         <span style={{ fontSize: 10.5, color: "var(--md-on-surface-variant, #94a3b8)" }}>
           {["wifi", ble ? "ble" : null].filter(Boolean).join(" + ")}
         </span>
+
+        {/* View mode toggle (List vs Map) */}
+        <div style={{
+          marginLeft: "auto",
+          display: "flex",
+          gap: 2,
+          background: "var(--md-surface-2, #1c2531)",
+          borderRadius: 999,
+          padding: 3,
+          border: "1px solid var(--md-outline, rgba(255,255,255,.1))",
+        }}>
+          <button
+            type="button"
+            onClick={() => setViewMode("list")}
+            className="md-pressable"
+            style={{
+              border: "none",
+              borderRadius: 999,
+              padding: "4px 11px",
+              fontSize: 11.5,
+              fontWeight: 700,
+              background: viewMode === "list" ? "#38bdf8" : "transparent",
+              color: viewMode === "list" ? "#06121f" : "var(--md-on-surface-variant, #94a3b8)",
+              cursor: "pointer",
+            }}
+          >
+            📋 List
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("map")}
+            className="md-pressable"
+            style={{
+              border: "none",
+              borderRadius: 999,
+              padding: "4px 11px",
+              fontSize: 11.5,
+              fontWeight: 700,
+              background: viewMode === "map" ? "#38bdf8" : "transparent",
+              color: viewMode === "map" ? "#06121f" : "var(--md-on-surface-variant, #94a3b8)",
+              cursor: "pointer",
+            }}
+          >
+            🗺️ Tactical Map
+          </button>
+        </div>
       </div>
 
       {(peers.length > 0 || running) && (
@@ -151,37 +203,50 @@ export function PeopleNearbyPanel({
         {navigating && targetId && (
           <PeerNavigator peers={peers} targetId={targetId} selfPos={selfPos} onExit={() => setTargetId(null)} />
         )}
-        {peers.map((p) => {
-          const badge = ROLE_BADGE[p.role] ?? ROLE_BADGE.citizen;
-          return (
-            <div key={p.peerId} role="button" tabIndex={0} onClick={() => void navigate(p.peerId)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void navigate(p.peerId); }}
-              className="md-pressable" style={{
-                display: "flex", alignItems: "center", gap: 11, background: "var(--md-surface-2, #1c2531)",
-                border: p.needsHelp ? "1px solid rgba(248,113,113,.5)" : "1px solid transparent",
-                borderRadius: 12, padding: "9px 12px", cursor: "pointer",
-              }}>
-              <span style={{ fontSize: 17, width: 20, textAlign: "center", color: p.needsHelp ? "#f87171" : "var(--md-on-surface, #e2e8f0)" }}>
-                {compassArrow(p.bearingDeg)}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  <b style={{ fontSize: 13 }}>{p.alias}</b>
-                  <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".06em", background: badge.bg, color: badge.fg, borderRadius: 999, padding: "2px 7px" }}>{badge.label}</span>
-                  {p.needsHelp && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".06em", background: "rgba(248,113,113,.18)", color: "#f87171", borderRadius: 999, padding: "2px 7px" }}>SOS</span>}
-                  <span style={{ fontSize: 9, fontWeight: 700, color: "var(--md-on-surface-variant, #94a3b8)" }}>{p.source === "ble" ? "BLE" : "WIFI"}</span>
+
+        {viewMode === "map" ? (
+          <NearbyTacticalMap
+            peers={peers}
+            selfPos={selfPos}
+            heading={heading}
+            selectedPeerId={targetId}
+            onSelectPeer={(id) => void navigate(id)}
+            height={380}
+          />
+        ) : (
+          peers.map((p) => {
+            const badge = ROLE_BADGE[p.role] ?? ROLE_BADGE.citizen;
+            return (
+              <div key={p.peerId} role="button" tabIndex={0} onClick={() => void navigate(p.peerId)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void navigate(p.peerId); }}
+                className="md-pressable" style={{
+                  display: "flex", alignItems: "center", gap: 11, background: "var(--md-surface-2, #1c2531)",
+                  border: p.needsHelp ? "1px solid rgba(248,113,113,.5)" : "1px solid transparent",
+                  borderRadius: 12, padding: "9px 12px", cursor: "pointer",
+                }}>
+                <span style={{ fontSize: 17, width: 20, textAlign: "center", color: p.needsHelp ? "#f87171" : "var(--md-on-surface, #e2e8f0)" }}>
+                  {compassArrow(p.bearingDeg)}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <b style={{ fontSize: 13 }}>{p.alias}</b>
+                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".06em", background: badge.bg, color: badge.fg, borderRadius: 999, padding: "2px 7px" }}>{badge.label}</span>
+                    {p.needsHelp && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".06em", background: "rgba(248,113,113,.18)", color: "#f87171", borderRadius: 999, padding: "2px 7px" }}>SOS</span>}
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "var(--md-on-surface-variant, #94a3b8)" }}>{p.source === "ble" ? "BLE" : "WIFI"}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--md-on-surface-variant, #94a3b8)", marginTop: 2 }}>
+                    seen {formatAge(Date.now() - p.lastSeen)}
+                    {p.batteryPct != null && <> · battery {p.batteryPct}%</>}
+                    {p.accuracyM != null && p.accuracyM > 0 && <> · ±{p.accuracyM} m</>}
+                  </div>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--md-on-surface-variant, #94a3b8)", marginTop: 2 }}>
-                  seen {formatAge(Date.now() - p.lastSeen)}
-                  {p.batteryPct != null && <> · battery {p.batteryPct}%</>}
-                  {p.accuracyM != null && p.accuracyM > 0 && <> · ±{p.accuracyM} m</>}
-                </div>
+                <b style={{ fontSize: 13.5, color: p.needsHelp ? "#f87171" : "#38bdf8", whiteSpace: "nowrap" }}>{formatDistance(p.distanceM)}</b>
+                <span style={{ fontSize: 12, color: "var(--md-on-surface-variant, #94a3b8)" }}>›</span>
               </div>
-              <b style={{ fontSize: 13.5, color: p.needsHelp ? "#f87171" : "#38bdf8", whiteSpace: "nowrap" }}>{formatDistance(p.distanceM)}</b>
-              <span style={{ fontSize: 12, color: "var(--md-on-surface-variant, #94a3b8)" }}>›</span>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
+
         {running && peers.length === 0 && (
           <div style={{ fontSize: 12, color: "var(--md-on-surface-variant, #94a3b8)", padding: "8px 4px" }}>
             No consenting app users in range yet… keep moving toward the crowd.

@@ -113,4 +113,41 @@ const store2 = new PeerStore();
 store2.upsert({ peerId: "aaaa0005", rssi: -70, source: "ble" }, t0);
 expect(store2.snapshot()[0].distanceM != null, "rssi-only distance without GPS");
 
+/* ---- multi-citizen tactical vector projection ---- */
+const rescuerPos = { lat: 24.8105, lon: 93.6820 };
+const peerNorth = {
+  peerId: "c001", alias: "C-NORTH", lat: 24.8150, lon: 93.6820,
+  bearingDeg: null, distanceM: null, rssi: -65, accuracyM: 3, source: "wifi" as const,
+  needsHelp: false, batteryPct: 80, lastSeen: t0, firstSeen: t0, role: "citizen" as const
+};
+const peerEast = {
+  peerId: "c002", alias: "C-EAST", lat: 24.8105, lon: 93.6860,
+  bearingDeg: null, distanceM: null, rssi: -72, accuracyM: 5, source: "wifi" as const,
+  needsHelp: true, batteryPct: 45, lastSeen: t0, firstSeen: t0, role: "citizen" as const
+};
+const peerBuriedBle = {
+  peerId: "c003", alias: "C-BURIED", lat: null, lon: null,
+  bearingDeg: null, distanceM: null, rssi: -78, accuracyM: null, source: "ble" as const,
+  needsHelp: true, batteryPct: 22, lastSeen: t0, firstSeen: t0, role: "citizen" as const
+};
+
+const bNorth = bearingTo(rescuerPos, peerNorth);
+const bEast = bearingTo(rescuerPos, peerEast);
+const dNorth = distanceTo(rescuerPos, peerNorth);
+const dEast = distanceTo(rescuerPos, peerEast);
+const dBuried = distanceTo(rescuerPos, peerBuriedBle);
+
+expect(bNorth != null && Math.abs(bNorth - 0) < 1, "multi-peer: north bearing ~0°");
+expect(bEast != null && Math.abs(bEast - 90) < 1, "multi-peer: east bearing ~90°");
+expect(dNorth != null && Math.abs(dNorth - 500) < 15, "multi-peer: north distance ~500m");
+expect(dEast != null && Math.abs(dEast - 405) < 20, "multi-peer: east distance ~405m");
+expect(dBuried != null && dBuried > 5 && dBuried < 15, "multi-peer: buried BLE peer range estimated from RSSI");
+
+// Rescuer facing 45° NE heading:
+const phoneHeading = 45;
+const relNorth = relativeBearing(bNorth, phoneHeading);
+const relEast = relativeBearing(bEast, phoneHeading);
+expect(Math.round(relNorth.relativeDeg) === 315 && relNorth.sector === "slightly-left", "multi-peer: rescuer facing 45° sees north peer at 315° slightly-left");
+expect(Math.round(relEast.relativeDeg) === 45 && relEast.sector === "slightly-right", "multi-peer: rescuer facing 45° sees east peer at 45° slightly-right");
+
 console.log("\nnearby-peers selfcheck: ALL PASSED");
