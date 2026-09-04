@@ -9,11 +9,13 @@ import { formatAge, formatDistance, compassArrow } from "../geo.ts";
 import { DEFAULT_RADIUS_M, MAX_RADIUS_M } from "../config.ts";
 import { NearbyService } from "../nearbyService.ts";
 import { bleScanSupported } from "../transports/bleTransport.ts";
+import { PeerNavigator, requestCompassPermission } from "./PeerNavigator";
 import type { PeerInfo } from "../types.ts";
+import type { SelfPos } from "./PeerNavigator";
 
 const RADII = [250, 500, 1000, 3000];
 
-const ROLE_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
+export const ROLE_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
   citizen: { bg: "rgba(250,204,21,.14)", fg: "#facc15", label: "CITIZEN" },
   field: { bg: "rgba(56,189,248,.14)", fg: "#38bdf8", label: "FIELD" },
   relay: { bg: "rgba(167,139,250,.16)", fg: "#a78bfa", label: "RELAY" },
@@ -34,11 +36,23 @@ export function PeopleNearbyPanel({
   const [peers, setPeers] = useState<PeerInfo[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [radius, setRadius] = useState(Math.min(radiusM, MAX_RADIUS_M));
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const [selfPos, setSelfPos] = useState<SelfPos | null>(null);
   const svcRef = useRef<NearbyService | null>(null);
   const radiusRef = useRef(radius);
   radiusRef.current = radius;
 
   useEffect(() => () => svcRef.current?.stop(), []);
+
+  /* keep self position fresh while navigating so the arrow tracks movement */
+  useEffect(() => {
+    if (!targetId) return;
+    const id = setInterval(() => {
+      const p = svcRef.current?.status().position ?? null;
+      setSelfPos(p);
+    }, 1_000);
+    return () => clearInterval(id);
+  }, [targetId]);
 
   async function toggle() {
     if (svcRef.current?.status().running) {
@@ -68,6 +82,16 @@ export function PeopleNearbyPanel({
     setRadius(r);
     if (svcRef.current?.status().running) setMsg(`Radius → ${r} m (applies next query tick)`);
   }
+
+  async function navigate(id: string) {
+    // iOS needs the compass permission inside this user gesture
+    await requestCompassPermission();
+    const p = svcRef.current?.status().position ?? null;
+    setSelfPos(p);
+    setTargetId(id);
+  }
+
+  const navigating = targetId != null;
 
   const needHelp = peers.filter((p) => p.needsHelp);
   const ble = bleScanSupported();
@@ -124,14 +148,19 @@ export function PeopleNearbyPanel({
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {navigating && targetId && (
+          <PeerNavigator peers={peers} targetId={targetId} selfPos={selfPos} onExit={() => setTargetId(null)} />
+        )}
         {peers.map((p) => {
           const badge = ROLE_BADGE[p.role] ?? ROLE_BADGE.citizen;
           return (
-            <div key={p.peerId} style={{
-              display: "flex", alignItems: "center", gap: 11, background: "var(--md-surface-2, #1c2531)",
-              border: p.needsHelp ? "1px solid rgba(248,113,113,.5)" : "1px solid transparent",
-              borderRadius: 12, padding: "9px 12px",
-            }}>
+            <div key={p.peerId} role="button" tabIndex={0} onClick={() => void navigate(p.peerId)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void navigate(p.peerId); }}
+              className="md-pressable" style={{
+                display: "flex", alignItems: "center", gap: 11, background: "var(--md-surface-2, #1c2531)",
+                border: p.needsHelp ? "1px solid rgba(248,113,113,.5)" : "1px solid transparent",
+                borderRadius: 12, padding: "9px 12px", cursor: "pointer",
+              }}>
               <span style={{ fontSize: 17, width: 20, textAlign: "center", color: p.needsHelp ? "#f87171" : "var(--md-on-surface, #e2e8f0)" }}>
                 {compassArrow(p.bearingDeg)}
               </span>
@@ -149,12 +178,18 @@ export function PeopleNearbyPanel({
                 </div>
               </div>
               <b style={{ fontSize: 13.5, color: p.needsHelp ? "#f87171" : "#38bdf8", whiteSpace: "nowrap" }}>{formatDistance(p.distanceM)}</b>
+              <span style={{ fontSize: 12, color: "var(--md-on-surface-variant, #94a3b8)" }}>›</span>
             </div>
           );
         })}
         {running && peers.length === 0 && (
           <div style={{ fontSize: 12, color: "var(--md-on-surface-variant, #94a3b8)", padding: "8px 4px" }}>
             No consenting app users in range yet… keep moving toward the crowd.
+          </div>
+        )}
+        {navigating && !targetId && (
+          <div style={{ fontSize: 11.5, color: "var(--md-on-surface-variant, #94a3b8)", padding: "6px 4px" }}>
+            Tap a person above to navigate to them.
           </div>
         )}
       </div>

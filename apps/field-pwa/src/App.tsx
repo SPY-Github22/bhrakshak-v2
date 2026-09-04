@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertsPanel, type LiveAlert } from "./components/AlertsPanel";
 import { BleCrowdPanel } from "./components/BleCrowdPanel";
 import { MeshRelayPanel } from "./components/MeshRelayPanel";
+import { PeerNavigator, requestCompassPermission } from "../../nearby-peers/src/components/PeerNavigator";
 import { PeopleNearbyPanel } from "../../nearby-peers/src/components/PeopleNearbyPanel";
 import { EdgeVisionInspector, type FissureAnalysisResult } from "./components/EdgeVisionInspector";
 import { RainGaugePanel } from "./components/RainGaugePanel";
@@ -121,7 +122,6 @@ export default function App() {
             localStorage.setItem("bh_zone_level", String(z.hazard_level));
           }} />
           <AlertsPanel online={online} onLiveAlert={handleLiveAlert} />
-          <BleCrowdPanel token={getStoredToken()} zoneId={zone?.id ?? null} />
           <PeopleNearbyPanel apiUrl={API} token={getStoredToken()} />
         </div>
       )}

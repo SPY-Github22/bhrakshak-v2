@@ -11,5 +11,6 @@ export { PeerStore, roleLabel } from "./peerStore.ts";
 export { RendezvousTransport, type RendezvousOptions } from "./transports/rendezvousTransport.ts";
 export { BleTransport, bleScanSupported, type BleTransportOptions } from "./transports/bleTransport.ts";
 export { NearbyService, type NearbyServiceOptions, type NearbyStatus } from "./nearbyService.ts";
+export { PeerNavigator, requestCompassPermission } from "./components/PeerNavigator.tsx";
 export { PeopleNearbyPanel } from "./components/PeopleNearbyPanel.tsx";
 export { CitizenBeaconPanel } from "./components/CitizenBeaconPanel.tsx";

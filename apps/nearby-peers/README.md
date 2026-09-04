@@ -117,6 +117,18 @@ Everything is RAM + TTL (10 min), mirroring the codebase's `mesh.py` pattern.
    the rescuer panel degrades to Wi-Fi mode with a clear status line.
 5. **Validate** — `npm run selfcheck` (node ≥22), `npm run typecheck`,
    `pytest tests/test_nearby_router.py`.
+## Guided navigation (the "walk me to them" HUD)
+
+Tap any peer in the rescuer's **People Nearby** list → full-screen `PeerNavigator`:
+
+* **Big arrow that points AT the person** — combines the GPS bearing to the peer with the phone's own magnetometer heading (`deviceorientationabsolute` / `webkitCompassHeading`), Google-Maps-compass-style. If no compass is available the arrow falls back to absolute bearing with "top of phone = North".
+* **Distance countdown** + plain-language guidance ("Straight ahead · 120 m", "Turn around · 1.5 km").
+* **Vibration sonar** — buzzes on a 1.2 s cadence, pulse length grows as you close in, double-pulse under 25 m (works when you can't stare at the screen). Toggleable; the screen is kept awake via `WakeLock`.
+* **Radar view** — rescuer at center, peer as a blip at the live bearing. When the peer has no GPS fix (buried/indoor), shows an RSSI-derived range ring instead of a point.
+* **RSSI warm/cold meter** — "🔥 WARMER / ❄ COLDER" trend between advertisements, the hot/cold cue for zero-GPS-fix peers.
+* **Signal-lost banner** — holds the last-known bearing if the peer is TTL-swept mid-search.
+* **Map handoff** (only when exact coords exist) — "🗺 OSM pin" opens an OpenStreetMap pin; "📍 Maps app" fires a `geo:` intent to the native maps app. No map tiles, no routing engine, no new dependencies — it works fully offline.
+
 
 ## How it is wired into Bhrakshak v2
 
