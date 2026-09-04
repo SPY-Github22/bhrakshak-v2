@@ -57,7 +57,7 @@ lint:
 	python -m compileall -q apps/api/app apps/worker ml scripts demo
 
 dev-api: ## Run API locally without docker (needs local postgres/redis)
-	cd apps/api && uvicorn app.main:app --reload --port 8000
+	cd apps/api && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 dev-dashboard:
 	cd apps/dashboard && npm run dev
