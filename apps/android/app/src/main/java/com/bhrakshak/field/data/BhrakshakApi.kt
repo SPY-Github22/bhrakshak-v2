@@ -189,6 +189,17 @@ data class AlertOut(
     @SerialName("fired_at") val firedAt: String? = null,
 )
 
+@Serializable
+data class ActiveAlertOut(
+    val id: String,
+    val level: Int = 0,
+    val name: String? = null,
+    val message: String? = null,
+    val district: String? = null,
+    @SerialName("location_name") val locationName: String? = null,
+    @SerialName("fired_at") val firedAt: String? = null,
+)
+
 // --- Model V geo-photo AI pre-screen ----------------------------------------
 @Serializable
 data class PhotoVerdict(
@@ -253,6 +264,9 @@ interface BhrakshakApi {
     suspend fun alerts(
         @Header("Authorization") token: String,
     ): List<AlertOut>
+
+    @GET("api/v1/alerts/active")
+    suspend fun activeAlerts(): List<ActiveAlertOut>
 
     @Multipart
     @POST("api/v1/reports/analyze-photo")

@@ -72,6 +72,16 @@ async def inject_rainfall_storm(
         "message": f"🚨 EMERGENCY (L4): Extreme monsoon cell injected ({body.peak_mm_h} mm/h) over {loc_display}! Evacuate steep slopes immediately.",
     }
     try:
+        from app.api.v1.alerts import DEMO_ACTIVE_STORMS
+        DEMO_ACTIVE_STORMS.insert(0, {
+            "id": f"STORM-{int(datetime.now(timezone.utc).timestamp())}",
+            "level": 4,
+            "name": alert_event["name"],
+            "district": target_district,
+            "location_name": loc_display,
+            "message": alert_event["message"],
+            "fired_at": datetime.now(timezone.utc).isoformat(),
+        })
         await broadcast_event(alert_event)
     except Exception:
         pass
@@ -167,10 +177,12 @@ async def reset_storm(
 ):
     """Reset all synthetic rainfall observations and set all zone risk levels back to Normal (L0)."""
     from sqlalchemy import delete, update
+    from app.api.v1.alerts import DEMO_ACTIVE_STORMS
     from app.api.v1.zones import reset_demo_zones
     from app.models import RiskCell
 
     reset_demo_zones()
+    DEMO_ACTIVE_STORMS.clear()
 
     allclear_event = {
         "type": "allclear",

@@ -264,6 +264,17 @@ class MainActivity : AppCompatActivity() {
         root.addView(label("Logged in as $email"))
         runCatching { LiveAlertService.start(this) }
 
+        // --- Active Emergency Alert Banner Card ---
+        val alertCard = TextView(this).apply {
+            visibility = View.GONE
+            setPadding(32, 32, 32, 32)
+            textSize = 14f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xFF991B1B.toInt())
+        }
+        root.addView(alertCard)
+
         // --- Demo Location Override Picker (Judge Demo Control) ---
         root.addView(label("📍 SIMULATE LOCATION (Demo Control)"))
         val locSpinner = Spinner(this).apply {
@@ -319,12 +330,46 @@ class MainActivity : AppCompatActivity() {
         refreshRisk(riskNow)
 
         riskJob = lifecycleScope.launch {
+            var lastNotifiedId = ""
             while (isActive) {
-                delay(3000L)
+                try {
+                    val activeList = Api.service.activeAlerts()
+                    val active = activeList.firstOrNull { it.level >= 2 }
+                    if (active != null) {
+                        val alertMsg = active.message ?: active.name ?: "Emergency Monsoon Storm Active"
+                        alertCard.text = "🚨 EMERGENCY ACTIVE 🚨\n\n$alertMsg"
+                        alertCard.visibility = View.VISIBLE
+
+                        if (active.id != lastNotifiedId) {
+                            lastNotifiedId = active.id
+                            LiveAlertService.postAlertNotification(
+                                this@MainActivity,
+                                "⚠ L${active.level} EMERGENCY ALERT",
+                                alertMsg,
+                                notifId = active.id.hashCode()
+                            )
+                        }
+                    } else {
+                        alertCard.visibility = View.GONE
+                    }
+                } catch (e: Exception) {
+                    // Ignore network polling errors
+                }
+
                 refreshRisk(riskNow)
+                delay(3000L)
             }
         }
 
+        root.addView(button("🔔 TEST NOTIFICATION (System Pop-Up)", 0xFFD97706.toInt()) {
+            LiveAlertService.postAlertNotification(
+                this@MainActivity,
+                "🚨 TEST EMERGENCY ALERT",
+                "BhuRakshak System Test: Heads-up alert notifications are working on your phone!",
+                notifId = 9999
+            )
+            Toast.makeText(this@MainActivity, "Notification sent! Check your top status bar.", Toast.LENGTH_SHORT).show()
+        })
         root.addView(button("I'M SAFE — check in", 0xFF059669.toInt()) { safeCheckin() })
         root.addView(button("SAFEST ROUTE (pathway model)", 0xFF0284C7.toInt()) { showSafeRoute() })
         root.addView(button("💬 LIVE EMERGENCY CHAT (Command Center)", 0xFF2563EB.toInt()) { lifecycleScope.launch { showChatScreen() } })

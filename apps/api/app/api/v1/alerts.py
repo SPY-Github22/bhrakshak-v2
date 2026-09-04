@@ -20,6 +20,32 @@ DEMO_ALERTS = [
     AlertOut(id=uuid.UUID("00000000-0000-0000-0000-000000000012"), zone_id=uuid.UUID("00000000-0000-0000-0000-000000000002"), level=3, lang="en", channels=["push"], recipients=950, message_template="alert.l3", ack_at=None, fired_at=datetime.now(timezone.utc) - timedelta(hours=2)),
 ]
 
+DEMO_ACTIVE_STORMS: list[dict] = []
+
+
+@router.get("/active")
+async def active_alerts(db: AsyncSession = Depends(get_db)):
+    """Return all active emergency alerts for live mobile app polling."""
+    if db is not None:
+        try:
+            q = select(Alert).where(Alert.level >= 2, Alert.ack_at.is_(None)).order_by(Alert.fired_at.desc()).limit(20)
+            alerts_db = (await db.execute(q)).scalars().all()
+            if alerts_db:
+                return [
+                    {
+                        "id": str(a.id),
+                        "level": a.level,
+                        "name": f"L{a.level} Emergency Alert",
+                        "message": a.message_template,
+                        "district": getattr(a, "district", "Active Hazard Zone"),
+                        "fired_at": a.fired_at.isoformat() if a.fired_at else None,
+                    }
+                    for a in alerts_db
+                ]
+        except Exception:
+            pass
+    return DEMO_ACTIVE_STORMS
+
 @router.get("", response_model=list[AlertOut])
 async def list_alerts(limit: int = 100, level_min: int | None = None,
                       db: AsyncSession = Depends(get_db), _user=Depends(require_roles(*OPS_ROLES))):
