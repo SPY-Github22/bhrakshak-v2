@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     open_meteo_base: str = "https://api.open-meteo.com/v1"
 
-    cors_origins: str = "http://localhost:3000,http://localhost:5173"
+    cors_origins: str = "*"
 
     # alert channels — dryrun by default so demo never needs real keys
     sms_provider: str = "dryrun"
