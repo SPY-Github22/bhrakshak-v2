@@ -157,6 +157,7 @@ class DetourOut(BaseModel):
 # ---------- Demo / Analytics ----------
 class StormInjectIn(BaseModel):
     district: str
+    location_name: str | None = None
     peak_mm_h: float = 45.0
     hours: int = 3
 

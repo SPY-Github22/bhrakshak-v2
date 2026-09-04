@@ -27,9 +27,18 @@ const MapView = dynamic(() => import("@/components/map/MapView"), {
 export default function CommandCenter() {
   const setDemoMode = useAppStore((s) => s.setDemoMode);
   const demoMode = useAppStore((s) => s.demoMode);
+  const [selectedLocation, setSelectedLocation] = useState<string>("Cherrapunji cut-slope area");
   const [injecting, setInjecting] = useState(false);
 
-  async function injectStorm() {
+  const LOCATIONS = [
+    { id: "Cherrapunji cut-slope area", label: "Cherrapunji Cut-Slope Area", district: "East Khasi Hills" },
+    { id: "Gangtok highway sector", label: "Gangtok Highway Sector", district: "Gangtok" },
+    { id: "Aizawl north slope", label: "Aizawl North Slope", district: "Aizawl" },
+  ];
+
+  async function injectStorm(locId?: string) {
+    const locKey = locId || selectedLocation;
+    const locConfig = LOCATIONS.find((l) => l.id === locKey) || LOCATIONS[0];
     setInjecting(true);
     try {
       const login = await fetch(`${endpoints.API}/api/v1/auth/login`, {
@@ -40,7 +49,12 @@ export default function CommandCenter() {
       await fetch(`${endpoints.API}/api/v1/demo/inject-rainfall-storm`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${login.access_token}` },
-        body: JSON.stringify({ district: "East Khasi Hills", peak_mm_h: 55, hours: 3 }),
+        body: JSON.stringify({
+          district: locConfig.district,
+          location_name: locConfig.id,
+          peak_mm_h: 55,
+          hours: 3,
+        }),
       });
       setDemoMode(true);
       setTimeout(() => window.location.reload(), 2200);
@@ -57,27 +71,42 @@ export default function CommandCenter() {
       <LayerRail />
       <Legend />
 
-      {/* Demo control — the judge button */}
-      <div className="anim anim-fade absolute bottom-4 left-3 z-10 flex items-center gap-3 rounded-xl border border-orange-800 bg-panel/90 p-3 shadow-2xl shadow-black/50 backdrop-blur-md" style={{ animationDelay: "0.9s" }}>
-        <Button variant="primary" size="lg" onClick={injectStorm} disabled={injecting}>
-          {injecting ? (
-            <span className="flex items-center gap-2">
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-              Injecting…
+      {/* Demo control — target location injection selector */}
+      <div className="anim anim-fade absolute bottom-4 left-3 z-10 flex flex-col gap-2 rounded-xl border border-orange-800 bg-panel/90 p-3 shadow-2xl shadow-black/50 backdrop-blur-md" style={{ animationDelay: "0.9s" }}>
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedLocation}
+            onChange={(e) => setSelectedLocation(e.target.value)}
+            disabled={injecting}
+            className="rounded-lg border border-orange-700 bg-black/60 px-2 py-1.5 text-xs text-orange-200 focus:outline-none focus:ring-1 focus:ring-orange-500"
+          >
+            {LOCATIONS.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                📍 {loc.label}
+              </option>
+            ))}
+          </select>
+
+          <Button variant="primary" size="lg" onClick={() => injectStorm()} disabled={injecting}>
+            {injecting ? (
+              <span className="flex items-center gap-2">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                Injecting…
+              </span>
+            ) : (
+              "⛈ Inject Rain"
+            )}
+          </Button>
+        </div>
+
+        <div className="flex items-center justify-between text-[11px] text-muted">
+          <span>synthetic storm → live risk pipeline</span>
+          {demoMode && (
+            <span className="animate-pulse rounded bg-orange-900 px-1.5 py-0.5 font-bold text-orange-300">
+              DEMO MODE
             </span>
-          ) : (
-            "⛈ Inject Monsoon Cell (Demo)"
           )}
-        </Button>
-        <p className="max-w-[240px] text-[11px] leading-snug text-muted">
-          synthetic extreme rainfall → live threshold+hysteresis pipeline → escalation &amp;
-          multilingual alerts
-        </p>
-        {demoMode && (
-          <span className="animate-pulse rounded-lg bg-orange-900 px-2 py-1 text-[11px] font-bold text-orange-300">
-            DEMO MODE
-          </span>
-        )}
+        </div>
       </div>
 
       <RadarSlider />

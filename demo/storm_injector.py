@@ -27,15 +27,17 @@ def call(path: str, body: dict | None = None, token: str | None = None) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--district", default="East Khasi Hills")
+    ap.add_argument("--location", help="Target location e.g. 'Gangtok highway sector', 'Aizawl north slope', 'Cherrapunji cut-slope area'")
     ap.add_argument("--peak", type=float, default=50.0)
     ap.add_argument("--hours", type=int, default=3)
     args = ap.parse_args()
 
+    loc = args.location or args.district
     tok = call("/auth/login", {"email": "admin@bhrakshak.in", "password": "Admin@123"})["access_token"]
     result = call("/demo/inject-rainfall-storm",
-                  {"district": args.district, "peak_mm_h": args.peak, "hours": args.hours}, token=tok)
+                  {"district": args.district, "location_name": loc, "peak_mm_h": args.peak, "hours": args.hours}, token=tok)
     escalated = [l for l in result.get("levels", []) if l["level"] >= 2]
-    print(f"storm injected over {args.district}: {result.get('zones_injected')} zones, "
+    print(f"storm injected over {loc}: {result.get('zones_injected')} zones, "
           f"{len(escalated)} at L2+")
     for l in result.get("levels", []):
         bar = "#" * l["level"]

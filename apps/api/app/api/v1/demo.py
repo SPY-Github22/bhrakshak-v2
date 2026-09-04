@@ -40,25 +40,36 @@ async def inject_rainfall_storm(
     db: AsyncSession = Depends(get_db),
     _user=Depends(require_roles(*ADMIN_ONLY)),
 ):
-    """Synthetic extreme-rainfall ramp over a district's zones, then run the REAL
-    recompute pipeline (thresholds + hysteresis + alerts). Flagged demo-only."""
-    district_coords = {
-        "Noney": (24.88, 93.72),
-        "East Khasi Hills": (25.27, 91.73),
-        "Aizawl": (23.73, 92.72),
-        "Gangtok": (27.33, 88.61),
-        "Imphal West": (24.80, 93.94),
+    """Synthetic extreme-rainfall ramp over a district or specific sector's zones,
+    then run the REAL recompute pipeline (thresholds + hysteresis + alerts). Flagged demo-only."""
+    LOCATION_MAP = {
+        "gangtok highway sector": ("Gangtok", (27.33, 88.61), "Gangtok Highway Sector (NH-10 Corridor)"),
+        "gangtok": ("Gangtok", (27.33, 88.61), "Gangtok Highway Sector"),
+        "aizawl north slope": ("Aizawl", (23.74, 92.72), "Aizawl North Slope (Laipuitland/NH-54)"),
+        "aizawl": ("Aizawl", (23.73, 92.72), "Aizawl North Slope"),
+        "cherrapunji cut-slope area": ("East Khasi Hills", (25.27, 91.73), "Cherrapunji Cut-Slope Area (Sohra)"),
+        "cherrapunji": ("East Khasi Hills", (25.27, 91.73), "Cherrapunji Cut-Slope Area"),
+        "east khasi hills": ("East Khasi Hills", (25.27, 91.73), "East Khasi Hills Cut-Slope Sector"),
+        "noney": ("Noney", (24.88, 93.72), "Noney Railway Cut-Slope"),
+        "imphal west": ("Imphal West", (24.80, 93.94), "Imphal West Valley Slopes"),
     }
-    lat, lon = district_coords.get(body.district, (24.88, 93.72))
+
+    req_key = (body.location_name or body.district).strip().lower()
+    target_district, (lat, lon), loc_display = LOCATION_MAP.get(
+        req_key,
+        (body.district, (24.88, 93.72), body.location_name or body.district)
+    )
+
     alert_event = {
         "type": "alert",
         "level": 4,
-        "name": f"Extreme Monsoon Storm — {body.district}",
-        "district": body.district,
-        "zone_code": f"{body.district[:3].upper()}-STORM",
+        "name": f"Extreme Monsoon Storm — {loc_display}",
+        "district": target_district,
+        "location_name": loc_display,
+        "zone_code": f"{target_district[:3].upper()}-STORM",
         "lat": lat,
         "lon": lon,
-        "message": f"🚨 EMERGENCY (L4): Extreme monsoon cell injected ({body.peak_mm_h} mm/h) over {body.district}! Evacuate steep slopes immediately.",
+        "message": f"🚨 EMERGENCY (L4): Extreme monsoon cell injected ({body.peak_mm_h} mm/h) over {loc_display}! Evacuate steep slopes immediately.",
     }
     try:
         await broadcast_event(alert_event)
@@ -68,9 +79,9 @@ async def inject_rainfall_storm(
     try:
         if db is None:
             raise ValueError("PostgreSQL offline in demo mode")
-        zones = (await db.execute(select(Zone).where(Zone.district == body.district))).scalars().all()
+        zones = (await db.execute(select(Zone).where(Zone.district == target_district))).scalars().all()
         if not zones:
-            return {"error": "unknown district", "known": ["Aizawl", "East Khasi Hills", "Noney", "Imphal West", "Gangtok"]}
+            return {"error": "unknown district/sector", "known": ["Aizawl", "East Khasi Hills", "Noney", "Imphal West", "Gangtok", "Gangtok highway sector", "Aizawl north slope", "Cherrapunji cut-slope area"]}
 
         now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         steps = max(1, body.hours)
