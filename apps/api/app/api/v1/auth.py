@@ -17,7 +17,7 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models import RefreshToken, Role, User
-from app.schemas.schemas import LoginIn, RefreshIn, TokenOut, UserOut
+from app.schemas.schemas import LanguageIn, LoginIn, RefreshIn, TokenOut, UpdateProfileIn, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -163,3 +163,33 @@ async def logout(body: RefreshIn, db: AsyncSession = Depends(get_db)):
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.patch("/me", response_model=UserOut)
+@router.put("/me", response_model=UserOut)
+async def update_profile(
+    body: UpdateProfileIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if body.preferred_lang is not None:
+        user.preferred_lang = body.preferred_lang.strip()
+    if body.full_name is not None:
+        user.full_name = body.full_name.strip()
+    if body.district is not None:
+        user.district = body.district.strip()
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.post("/language")
+async def set_language(
+    body: LanguageIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    user.preferred_lang = body.lang.strip()
+    await db.commit()
+    await db.refresh(user)
+    return {"ok": True, "preferred_lang": user.preferred_lang}

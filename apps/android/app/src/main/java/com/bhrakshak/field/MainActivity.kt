@@ -296,6 +296,55 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(0xFF991B1B.toInt())
         }
         root.addView(alertCard)
+        
+        // --- Multilingual Language Preference Picker (8 Pilot Regional Languages) ---
+        root.addView(label("🌐 LANGUAGE / भाषा (8 Pilot NER Languages)"))
+        val languages = listOf(
+            "en" to "English (en)",
+            "hi" to "हिन्दी (hi)",
+            "bn" to "বাংলা (bn)",
+            "as" to "অসমীয়া (as)",
+            "ne" to "नेपाली (ne)",
+            "kha" to "Khasi (kha)",
+            "lus" to "Mizo (lus)",
+            "mni-Mtei" to "ꯃꯤꯇꯩ / Manipuri (mni-Mtei)",
+        )
+        val langSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                languages.map { it.second },
+            )
+        }
+        root.addView(langSpinner)
+
+        val currentSavedLang = TokenStore.getLang(this)
+        val initialLangIndex = languages.indexOfFirst { it.first == currentSavedLang }.coerceAtLeast(0)
+        langSpinner.setSelection(initialLangIndex)
+
+        langSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p0: AdapterView<*>?, p1: View?, pos: Int, p3: Long) {
+                val selectedLang = languages[pos].first
+                if (selectedLang != TokenStore.getLang(this@MainActivity)) {
+                    TokenStore.setLang(this@MainActivity, selectedLang)
+                    prefs.edit().putString("preferred_lang", selectedLang).apply()
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        try {
+                            val token = TokenStore.access(this@MainActivity)
+                            if (token != null) {
+                                Api.service.updateLanguage(com.bhrakshak.field.data.LanguageUpdateIn(selectedLang), "Bearer $token")
+                            }
+                            val deviceId = TokenStore.deviceId(this@MainActivity)
+                            Api.service.setDevicePreferences(com.bhrakshak.field.data.DevicePreferencesIn(deviceId = deviceId, lang = selectedLang, preferredLang = selectedLang))
+                        } catch (e: Exception) {
+                            // Offline tolerance
+                        }
+                    }
+                    Toast.makeText(this@MainActivity, "Language: ${languages[pos].second}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            override fun onNothingSelected(p0: AdapterView<*>?) {}
+        }
 
         // --- Demo Location Override Picker (Judge Demo Control) ---
         root.addView(label("📍 SIMULATE LOCATION (Demo Control)"))
@@ -355,10 +404,11 @@ class MainActivity : AppCompatActivity() {
             var lastNotifiedId = ""
             while (isActive) {
                 try {
-                    val activeList = Api.service.activeAlerts()
+                    val userLang = TokenStore.getLang(this@MainActivity)
+                    val activeList = Api.service.activeAlerts(lang = userLang)
                     val active = activeList.firstOrNull { it.level >= 2 }
                     if (active != null) {
-                        val alertMsg = active.message ?: active.name ?: "Emergency Monsoon Storm Active"
+                        val alertMsg = active.messages[userLang] ?: active.message ?: active.name ?: "Emergency Monsoon Storm Active"
                         alertCard.text = "🚨 EMERGENCY ACTIVE 🚨\n\n$alertMsg"
                         alertCard.visibility = View.VISIBLE
 
@@ -763,15 +813,17 @@ class MainActivity : AppCompatActivity() {
         }
         try {
             val token = TokenStore.access(this) ?: return
-            val alerts = Api.service.alerts("Bearer $token")
+            val userLang = TokenStore.getLang(this)
+            val alerts = Api.service.alerts("Bearer $token", lang = userLang)
             withContext(Dispatchers.Main) {
                 status.text = if (alerts.isEmpty()) "no alerts fired yet"
                 else alerts.take(20).joinToString("\n\n") { a ->
-                    "${levelTag(a.level)} Â· ${a.firedAt?.take(19)?.replace('T', ' ') ?: ""}\n${a.message ?: ""}\nchannels: ${a.channels.joinToString(", ")}"
+                    val msg = a.messages[userLang] ?: a.message ?: ""
+                    "${levelTag(a.level)} · ${a.firedAt?.take(19)?.replace('T', ' ') ?: ""}\n$msg\nchannels: ${a.channels.joinToString(", ")}"
                 }
             }
         } catch (e: Exception) {
-            withContext(Dispatchers.Main) { status.text = "Offline â€” alert history unavailable" }
+            withContext(Dispatchers.Main) { status.text = "Offline — alert history unavailable" }
         }
     }
 

@@ -43,7 +43,29 @@ export default function App() {
     window.setTimeout(() => setSnack((cur) => (cur === m ? null : cur)), 3200);
   }
 
-  useEffect(() => localStorage.setItem("bh_lang", lang), [lang]);
+  useEffect(() => {
+    localStorage.setItem("bh_lang", lang);
+    let deviceId = localStorage.getItem("bh_device");
+    if (!deviceId) {
+      deviceId = crypto.randomUUID();
+      localStorage.setItem("bh_device", deviceId);
+    }
+    fetch(`${API}/api/v1/public/preferences`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_id: deviceId, lang, preferred_lang: lang }),
+    }).catch(() => {});
+
+    const token = getStoredToken();
+    if (token) {
+      fetch(`${API}/api/v1/auth/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ preferred_lang: lang }),
+      }).catch(() => {});
+    }
+  }, [lang]);
+
   useEffect(() => {
     const on = () => { setOnline(true); syncQueue(API).then((r) => r.sent && toast(`${r.sent} report${r.sent > 1 ? "s" : ""} synced ✓`)); };
     const off = () => setOnline(false);
@@ -57,11 +79,12 @@ export default function App() {
   }, []);
 
   function handleLiveAlert(a: LiveAlert) {
-    toast(a.message.slice(0, 110));
+    const alertMsg = (a.messages && a.messages[lang]) || a.message;
+    toast(alertMsg.slice(0, 110));
     if (a.level >= 3) navigator.vibrate?.([120, 60, 120, 60, 200]);
     if (typeof Notification !== "undefined" && Notification.permission === "granted") {
       try {
-        new Notification(`L${a.level} · ${LEVEL_NAMES[Math.min(a.level, 4)]}`, { body: a.message, tag: a.id });
+        new Notification(`L${a.level} · ${LEVEL_NAMES[Math.min(a.level, 4)]}`, { body: alertMsg, tag: a.id });
       } catch { /* noop */ }
     }
   }
@@ -121,7 +144,7 @@ export default function App() {
             localStorage.setItem("bh_zone_name", z.name ?? "");
             localStorage.setItem("bh_zone_level", String(z.hazard_level));
           }} />
-          <AlertsPanel online={online} onLiveAlert={handleLiveAlert} />
+          <AlertsPanel online={online} lang={lang} onLiveAlert={handleLiveAlert} />
           <PeopleNearbyPanel apiUrl={API} token={getStoredToken()} />
         </div>
       )}

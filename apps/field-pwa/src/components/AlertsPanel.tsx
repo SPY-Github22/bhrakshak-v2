@@ -8,6 +8,7 @@ export interface LiveAlert {
   id: string;
   level: number;
   message: string;
+  messages?: Record<string, string>;
   zone_code?: string;
   district?: string | null;
   fired_at: string;
@@ -33,24 +34,39 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)} d ago`;
 }
 
-export function AlertsPanel({ online, onLiveAlert }: { online: boolean; onLiveAlert?: (a: LiveAlert) => void }) {
+export function AlertsPanel({ online, lang = "en", onLiveAlert }: { online: boolean; lang?: string; onLiveAlert?: (a: LiveAlert) => void }) {
   const [alerts, setAlerts] = useState<LiveAlert[]>(loadCache);
   const [wsOk, setWsOk] = useState(false);
   const spokeRef = useRef<Set<string>>(new Set());
+  const langRef = useRef<string>(lang);
+  useEffect(() => { langRef.current = lang; }, [lang]);
 
   useEffect(() => {
     let alive = true;
-    // initial fetch (online only); cache keeps it visible offline
-    fetch(`${API}/api/v1/alerts?limit=25`)
+    // fetch active alerts in selected language; cache keeps it visible offline
+    fetch(`${API}/api/v1/alerts?limit=25&lang=${encodeURIComponent(lang)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((rows) => {
         if (!alive || !rows?.length) return;
         const mapped: LiveAlert[] = rows.map((a: any) => ({
-          id: String(a.id), level: a.level, message: a.message_en ?? a.message_template ?? "",
-          zone_code: a.zone_code, district: a.district, fired_at: a.fired_at, lang: a.lang,
+          id: String(a.id),
+          level: a.level,
+          message: (a.messages && a.messages[lang]) || a.message_template || a.message || "",
+          messages: a.messages,
+          zone_code: a.zone_code,
+          district: a.district,
+          fired_at: a.fired_at,
+          lang: a.lang,
         }));
-        setAlerts(mapped);
-        saveCache(mapped);
+        setAlerts((prev) => {
+          // Merge preserving recent live alerts
+          const map = new Map<string, LiveAlert>();
+          for (const m of mapped) map.set(m.id, m);
+          for (const p of prev) { if (!map.has(p.id)) map.set(p.id, p); }
+          const merged = Array.from(map.values()).slice(0, 30);
+          saveCache(merged);
+          return merged;
+        });
       })
       .catch(() => {});
 
@@ -67,10 +83,16 @@ export function AlertsPanel({ online, onLiveAlert }: { online: boolean; onLiveAl
           try {
             const d = JSON.parse(ev.data);
             if (d.type === "alert") {
+              const curLang = langRef.current;
+              const alertMsg = (d.messages && (d.messages[curLang] || d.messages["en"])) || d.message || "";
               const a: LiveAlert = {
-                id: `live-${Date.now()}`, level: d.level ?? 0,
-                message: d.message ?? "", zone_code: d.zone_code,
-                district: d.district ?? null, fired_at: new Date().toISOString(),
+                id: `live-${Date.now()}`,
+                level: d.level ?? 0,
+                message: alertMsg,
+                messages: d.messages,
+                zone_code: d.zone_code,
+                district: d.district ?? null,
+                fired_at: new Date().toISOString(),
                 channels: d.channels,
               };
               setAlerts((l) => {
@@ -80,7 +102,7 @@ export function AlertsPanel({ online, onLiveAlert }: { online: boolean; onLiveAl
               });
               onLiveAlert?.(a);
             } else if (d.type === "allclear") {
-              setAlerts((l) => l); // severity displayed per alert; allclear events keep feed alive
+              setAlerts((l) => l);
             }
           } catch { /* heartbeat / non-json */ }
         };
@@ -88,15 +110,16 @@ export function AlertsPanel({ online, onLiveAlert }: { online: boolean; onLiveAl
     };
     connect();
     return () => { alive = false; ws?.close(); if (retry) clearTimeout(retry); };
-  }, [online]);
+  }, [online, lang]);
 
   function speak(a: LiveAlert) {
     if (!window.speechSynthesis) return;
     if (spokeRef.current.has(a.id)) return;
     spokeRef.current.add(a.id);
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(a.message);
-    u.lang = "en-IN";
+    const spokenText = (a.messages && a.messages[lang]) || a.message;
+    const u = new SpeechSynthesisUtterance(spokenText);
+    u.lang = lang === "hi" ? "hi-IN" : (lang === "bn" ? "bn-IN" : "en-IN");
     u.rate = 0.95;
     window.speechSynthesis.speak(u);
   }
@@ -129,7 +152,7 @@ export function AlertsPanel({ online, onLiveAlert }: { online: boolean; onLiveAl
               <div style={{ fontSize: 10, color: "var(--md-on-surface-variant)" }}>{LEVEL_NAMES[Math.min(a.level, 4)]}</div>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, lineHeight: 1.45 }}>{a.message || "Risk update received."}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.45 }}>{(a.messages && a.messages[lang]) || a.message || "Risk update received."}</div>
               <div style={{ display: "flex", gap: 10, marginTop: 5, fontSize: 10.5, color: "var(--md-on-surface-variant)" }}>
                 {a.zone_code && <span>{a.zone_code}</span>}
                 <span>{timeAgo(a.fired_at)}</span>

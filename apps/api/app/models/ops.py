@@ -77,6 +77,7 @@ class Alert(Base):
     zone_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("zones.id"), index=True)
     level: Mapped[int] = mapped_column(Integer)  # 1..4
     message_template: Mapped[str | None] = mapped_column(Text)
+    messages: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # {"en": "...", "hi": "...", ...}
     lang: Mapped[str] = mapped_column(String(10), default="en")
     channels: Mapped[list | None] = mapped_column(ARRAY(Text))  # sms|push|ivr|siren
     recipients: Mapped[int] = mapped_column(Integer, default=0)

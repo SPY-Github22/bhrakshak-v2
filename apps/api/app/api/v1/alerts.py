@@ -9,10 +9,9 @@ from app.api.deps import OPS_ROLES, require_roles
 from app.db.session import get_db
 from app.models import Alert, User
 from app.schemas.schemas import AckIn, AlertOut
-from app.services.risk_engine import LEVEL_NAMES, render_message
+from app.services.risk_engine import DEFAULT_TEMPLATES, LEVEL_NAMES, SUPPORTED_LANGUAGES, render_message
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
-
 
 DEMO_ALERTS = [
     AlertOut(id=uuid.UUID("00000000-0000-0000-0000-000000000010"), zone_id=uuid.UUID("00000000-0000-0000-0000-000000000001"), level=4, lang="en", channels=["push"], recipients=1400, message_template="alert.l4", ack_at=None, fired_at=datetime.now(timezone.utc) - timedelta(minutes=15)),
@@ -24,31 +23,58 @@ DEMO_ACTIVE_STORMS: list[dict] = []
 
 
 @router.get("/active")
-async def active_alerts(db: AsyncSession = Depends(get_db)):
-    """Return all active emergency alerts for live mobile app polling."""
+async def active_alerts(lang: str | None = None, db: AsyncSession = Depends(get_db)):
+    """Return all active emergency alerts for live mobile app polling, resolved in requested language."""
+    target_lang = (lang or "en").strip()
     if db is not None:
         try:
             q = select(Alert).where(Alert.level >= 2, Alert.ack_at.is_(None)).order_by(Alert.fired_at.desc()).limit(20)
             alerts_db = (await db.execute(q)).scalars().all()
             if alerts_db:
-                return [
-                    {
+                out = []
+                for a in alerts_db:
+                    msgs = a.messages or {
+                        l: DEFAULT_TEMPLATES.get((f"alert.l{a.level}", l), a.message_template or "").format(
+                            village="Active Hazard Zone", level=LEVEL_NAMES.get(a.level, f"L{a.level}"), action="Follow instructions"
+                        )
+                        for l in SUPPORTED_LANGUAGES
+                    }
+                    msg = msgs.get(target_lang) or a.message_template
+                    out.append({
                         "id": str(a.id),
                         "level": a.level,
                         "name": f"L{a.level} Emergency Alert",
-                        "message": a.message_template,
+                        "message": msg,
+                        "messages": msgs,
                         "district": getattr(a, "district", "Active Hazard Zone"),
                         "fired_at": a.fired_at.isoformat() if a.fired_at else None,
-                    }
-                    for a in alerts_db
-                ]
+                    })
+                return out
         except Exception:
             pass
-    return DEMO_ACTIVE_STORMS
+
+    # Demo active storms fallback
+    results = []
+    for s in DEMO_ACTIVE_STORMS:
+        item = dict(s)
+        msgs = item.get("messages") or {
+            l: DEFAULT_TEMPLATES.get((f"alert.l{item.get('level', 4)}", l), item.get("message", "")).format(
+                village=item.get("location_name") or item.get("district") or "Hazard Zone",
+                level=LEVEL_NAMES.get(item.get("level", 4), "EMERGENCY"),
+                action="Follow instructions",
+            )
+            for l in SUPPORTED_LANGUAGES
+        }
+        item["messages"] = msgs
+        item["message"] = msgs.get(target_lang) or item.get("message")
+        results.append(item)
+    return results
+
 
 @router.get("", response_model=list[AlertOut])
-async def list_alerts(limit: int = 100, level_min: int | None = None,
+async def list_alerts(limit: int = 100, level_min: int | None = None, lang: str | None = None,
                       db: AsyncSession = Depends(get_db), _user=Depends(require_roles(*OPS_ROLES))):
+    target_lang = (lang or "").strip()
     if db is None:
         res = DEMO_ALERTS
         if level_min:
@@ -58,7 +84,12 @@ async def list_alerts(limit: int = 100, level_min: int | None = None,
         q = select(Alert).order_by(Alert.fired_at.desc()).limit(limit)
         if level_min:
             q = q.where(Alert.level >= level_min)
-        return (await db.execute(q)).scalars().all()
+        rows = (await db.execute(q)).scalars().all()
+        if target_lang:
+            for r in rows:
+                if r.messages and target_lang in r.messages:
+                    r.message_template = r.messages[target_lang]
+        return rows
     except Exception:
         res = DEMO_ALERTS
         if level_min:

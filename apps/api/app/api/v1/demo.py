@@ -12,7 +12,7 @@ from app.api.v1.ws import broadcast_event
 from app.db.session import get_db
 from app.models import RainfallObs, Zone
 from app.schemas.schemas import StormInjectIn
-from app.services.risk_engine import evaluate_all_zones
+from app.services.risk_engine import evaluate_all_zones, render_multilingual_messages
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -60,6 +60,10 @@ async def inject_rainfall_storm(
         (body.district, (24.88, 93.72), body.location_name or body.district)
     )
 
+    messages = await render_multilingual_messages(db, "alert.l4", loc_display, "L4 (Evacuation Order)")
+    # Keep rich English message and multilingual translations
+    messages["en"] = f"🚨 EMERGENCY (L4): Extreme monsoon cell injected ({body.peak_mm_h} mm/h) over {loc_display}! Evacuate steep slopes immediately."
+
     alert_event = {
         "type": "alert",
         "level": 4,
@@ -69,7 +73,8 @@ async def inject_rainfall_storm(
         "zone_code": f"{target_district[:3].upper()}-STORM",
         "lat": lat,
         "lon": lon,
-        "message": f"🚨 EMERGENCY (L4): Extreme monsoon cell injected ({body.peak_mm_h} mm/h) over {loc_display}! Evacuate steep slopes immediately.",
+        "message": messages["en"],
+        "messages": messages,
     }
     try:
         from app.api.v1.alerts import DEMO_ACTIVE_STORMS
@@ -80,6 +85,7 @@ async def inject_rainfall_storm(
             "district": target_district,
             "location_name": loc_display,
             "message": alert_event["message"],
+            "messages": alert_event["messages"],
             "fired_at": datetime.now(timezone.utc).isoformat(),
         })
         await broadcast_event(alert_event)

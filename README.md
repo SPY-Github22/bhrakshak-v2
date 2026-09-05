@@ -59,6 +59,28 @@ Lightweight, responsive Progressive Web Apps designed for low-power mobile devic
 - Multi-language localization support across 8 regional languages.
 - Safe check-in button with battery-saving dark tactical UI.
 
+### 5. 🌐 Multilingual Early Warning & Notification System
+End-to-end regional language localization engineered specifically for the North Eastern Region (NER):
+- **8 Official Pilot Languages**:
+  1. `en` — English
+  2. `hi` — हिन्दी (Hindi)
+  3. `bn` — বাংলা (Bengali)
+  4. `as` — অসমীয়া (Assamese)
+  5. `ne` — नेपाली (Nepali)
+  6. `kha` — Khasi (Meghalaya)
+  7. `lus` — Mizo (Mizoram)
+  8. `mni-Mtei` — Manipuri / Meitei (Manipur)
+- **User Preference Persistence**:
+  - Users select their preferred language via intuitive dropdowns in the Native Android APK, Citizen PWA, or Field PWA.
+  - Preferences persist locally in `SharedPreferences` / `localStorage` and synchronize to the server via `POST /api/v1/public/preferences` (unauthenticated devices) and `PATCH /api/v1/auth/me` / `POST /api/v1/auth/language` (authenticated field officers).
+- **Backend Multilingual Risk Engine**:
+  - `risk_engine.py` renders translations for all 8 languages for every alert level (L1 Watch → L4 Emergency & All-Clear).
+  - Persisted in PostgreSQL via `JSONB` column `Alert.messages` (migration `0006_alert_messages.py`).
+- **Instant Client-Side & Native Notification Resolution**:
+  - Live WebSocket `/ws/live` broadcast payload includes the complete `messages: { [lang]: text }` dictionary.
+  - Native Android `LiveAlertService.kt` reads preferred language and delivers system notifications in the chosen language.
+  - PWAs dynamically re-render all cached and incoming alerts in the selected language with speech synthesis (`Read aloud`).
+
 ---
 
 ## ⚡ Quickstart
@@ -169,14 +191,18 @@ cd apps/nearby-peers && npm run selfcheck
 # 2. Nearby Peers TypeScript verification
 cd apps/nearby-peers && npm run typecheck
 
-# 3. Field PWA production build verification
+# 3. Field PWA & Citizen PWA production build verification
 cd apps/field-pwa && npm run build
+cd apps/citizen-pwa && npm run build
 
 # 4. Proximity Rendezvous Router pytest suite
 pytest apps/nearby-peers/tests/test_nearby_router.py
 
 # 5. Image Upload & Computer Vision pipeline pytest suite
 pytest apps/api/tests/test_image_upload.py
+
+# 6. Multilingual Notifications & Localization test suite
+pytest apps/api/tests/test_multilingual_notifications.py
 ```
 
 ---

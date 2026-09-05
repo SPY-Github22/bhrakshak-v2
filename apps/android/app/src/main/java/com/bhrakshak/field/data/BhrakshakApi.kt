@@ -185,6 +185,7 @@ data class AlertOut(
     val channels: List<String> = emptyList(),
     val recipients: Int? = null,
     @SerialName("message_template") val message: String? = null,
+    val messages: Map<String, String> = emptyMap(),
     @SerialName("ack_at") val ackAt: String? = null,
     @SerialName("fired_at") val firedAt: String? = null,
 )
@@ -195,9 +196,31 @@ data class ActiveAlertOut(
     val level: Int = 0,
     val name: String? = null,
     val message: String? = null,
+    val messages: Map<String, String> = emptyMap(),
     val district: String? = null,
     @SerialName("location_name") val locationName: String? = null,
     @SerialName("fired_at") val firedAt: String? = null,
+)
+
+@Serializable
+data class DevicePreferencesIn(
+    @SerialName("device_id") val deviceId: String,
+    val lang: String = "en",
+    @SerialName("preferred_lang") val preferredLang: String? = null,
+    @SerialName("fcm_token") val fcmToken: String? = null,
+)
+
+@Serializable
+data class DevicePreferencesOut(
+    val ok: Boolean = true,
+    val status: String = "ok",
+    @SerialName("device_id") val deviceId: String,
+    val lang: String = "en",
+)
+
+@Serializable
+data class LanguageUpdateIn(
+    @SerialName("preferred_lang") val preferredLang: String,
 )
 
 // --- Model V geo-photo AI pre-screen ----------------------------------------
@@ -278,10 +301,24 @@ interface BhrakshakApi {
     @GET("api/v1/alerts")
     suspend fun alerts(
         @Header("Authorization") token: String,
+        @Query("lang") lang: String? = null,
     ): List<AlertOut>
 
     @GET("api/v1/alerts/active")
-    suspend fun activeAlerts(): List<ActiveAlertOut>
+    suspend fun activeAlerts(
+        @Query("lang") lang: String? = null,
+    ): List<ActiveAlertOut>
+
+    @POST("api/v1/public/preferences")
+    suspend fun setDevicePreferences(
+        @Body body: DevicePreferencesIn,
+    ): DevicePreferencesOut
+
+    @retrofit2.http.PATCH("api/v1/auth/me")
+    suspend fun updateLanguage(
+        @Body body: LanguageUpdateIn,
+        @Header("Authorization") token: String,
+    ): okhttp3.ResponseBody
 
     @Multipart
     @POST("api/v1/reports/analyze-photo")

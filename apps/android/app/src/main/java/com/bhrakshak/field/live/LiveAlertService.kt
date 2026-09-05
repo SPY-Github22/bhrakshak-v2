@@ -50,17 +50,31 @@ class LiveAlertService : LifecycleService() {
                 when (obj.optString("type")) {
                     "alert" -> {
                         if (isAlertNearUser(obj)) {
+                            val userLang = com.bhrakshak.field.data.TokenStore.getLang(this@LiveAlertService)
+                            val msgs = obj.optJSONObject("messages")
+                            val localizedMsg = if (msgs != null && msgs.has(userLang)) {
+                                msgs.optString(userLang)
+                            } else {
+                                obj.optString("message")
+                            }
                             notify(
                                 "⚠ L${obj.optInt("level", 0)} ${obj.optString("name")}",
-                                obj.optString("message"),
+                                localizedMsg,
                                 notifId = obj.optString("zone_code").hashCode(),
                             )
                         }
                     }
                     "allclear" -> {
+                        val userLang = com.bhrakshak.field.data.TokenStore.getLang(this@LiveAlertService)
+                        val msgs = obj.optJSONObject("messages")
+                        val localizedMsg = if (msgs != null && msgs.has(userLang)) {
+                            msgs.optString(userLang)
+                        } else {
+                            obj.optString("message", "All clear issued for district")
+                        }
                         notify(
                             "🟢 ${obj.optString("name", "All Clear")}",
-                            obj.optString("message", "All clear issued for district"),
+                            localizedMsg,
                             notifId = "allclear".hashCode(),
                         )
                     }

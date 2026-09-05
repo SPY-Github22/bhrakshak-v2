@@ -26,6 +26,7 @@ interface LiveAlert {
   id: string;
   level: number;
   message: string;
+  messages?: Record<string, string>;
   fired_at: string;
   zone_code?: string;
 }
@@ -39,6 +40,9 @@ interface Shelter {
 
 export default function CitizenApp() {
   const [lang, setLang] = useState<LangCode>(() => (localStorage.getItem("cz_lang") as LangCode) || "en");
+  const langRef = useRef<LangCode>(lang);
+  useEffect(() => { langRef.current = lang; }, [lang]);
+
   const t = makeT(lang);
   const [online, setOnline] = useState(navigator.onLine);
   const [alerts, setAlerts] = useState<LiveAlert[]>(() => {
@@ -65,7 +69,65 @@ export default function CitizenApp() {
     window.setTimeout(() => setSnack((cur) => (cur === m ? null : cur)), 3400);
   }
 
-  useEffect(() => localStorage.setItem("cz_lang", lang), [lang]);
+  /* Sync language preference to local storage and backend server */
+  useEffect(() => {
+    localStorage.setItem("cz_lang", lang);
+    let deviceId = localStorage.getItem("cz_device");
+    if (!deviceId) {
+      deviceId = crypto.randomUUID();
+      localStorage.setItem("cz_device", deviceId);
+    }
+    // Sync anonymous device preference
+    fetch(`${API}/api/v1/public/preferences`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: deviceId,
+        lang,
+        preferred_lang: lang,
+        lat: coords?.lat ?? null,
+        lon: coords?.lon ?? null,
+      }),
+    }).catch(() => {});
+
+    // If authenticated user token exists, sync user profile
+    const token = localStorage.getItem("cz_token");
+    if (token) {
+      fetch(`${API}/api/v1/auth/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ preferred_lang: lang }),
+      }).catch(() => {});
+    }
+
+    // Refresh active alerts in the selected language
+    fetch(`${API}/api/v1/alerts/active?lang=${lang}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((activeList) => {
+        if (Array.isArray(activeList) && activeList.length) {
+          setAlerts((prev) => {
+            const map = new Map<string, LiveAlert>();
+            for (const item of activeList) {
+              map.set(item.id, {
+                id: item.id,
+                level: item.level,
+                message: item.messages?.[lang] || item.message,
+                messages: item.messages,
+                fired_at: item.fired_at || new Date().toISOString(),
+                zone_code: item.zone_code,
+              });
+            }
+            for (const existing of prev) {
+              if (!map.has(existing.id)) map.set(existing.id, existing);
+            }
+            const merged = Array.from(map.values()).slice(0, 25);
+            localStorage.setItem(CACHE.alerts, JSON.stringify(merged));
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+  }, [lang, coords]);
 
   /* online/offline + geolocation resolve */
   useEffect(() => {
@@ -114,9 +176,14 @@ export default function CitizenApp() {
             const d = JSON.parse(ev.data);
             if (d.type === "alert" || d.type === "citizen_checkin") {
               if (d.type !== "alert") return;
+              const currentLang = langRef.current;
+              const alertMsg = (d.messages && d.messages[currentLang]) || d.message || "";
               const a: LiveAlert = {
-                id: `live-${Date.now()}`, level: d.level ?? 0,
-                message: d.message ?? "", zone_code: d.zone_code,
+                id: `live-${Date.now()}`,
+                level: d.level ?? 0,
+                message: alertMsg,
+                messages: d.messages,
+                zone_code: d.zone_code,
                 fired_at: new Date().toISOString(),
               };
               setAlerts((l) => {
@@ -124,11 +191,11 @@ export default function CitizenApp() {
                 localStorage.setItem(CACHE.alerts, JSON.stringify(next));
                 return next;
               });
-              toast(a.message.slice(0, 120));
+              toast(alertMsg.slice(0, 120));
               if (a.level >= 3) {
                 navigator.vibrate?.([120, 60, 120, 60, 240]);
                 if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-                  try { new Notification(`L${a.level} — ${LEVEL_NAMES[Math.min(a.level, 4)]}`, { body: a.message, tag: a.id }); } catch { /* noop */ }
+                  try { new Notification(`L${a.level} — ${LEVEL_NAMES[Math.min(a.level, 4)]}`, { body: alertMsg, tag: a.id }); } catch { /* noop */ }
                 }
               }
             }
@@ -175,7 +242,7 @@ export default function CitizenApp() {
       if (!id) { id = crypto.randomUUID(); localStorage.setItem("cz_device", id); }
       return id;
     })();
-    const payload = { lat: coords?.lat ?? null, lon: coords?.lon ?? null, device_id: deviceId };
+    const payload = { lat: coords?.lat ?? null, lon: coords?.lon ?? null, device_id: deviceId, lang: lang };
     try {
       if (online) {
         const r = await fetch(`${API}/api/v1/public/checkin`, {
@@ -285,9 +352,19 @@ export default function CitizenApp() {
             </span>
             {topAlert.zone_code && <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--md-on-surface-variant)" }}>{topAlert.zone_code}</span>}
           </div>
-          <p style={{ margin: "9px 0 0", fontSize: 14.5, fontWeight: 700, lineHeight: 1.5 }}>{topAlert.message}</p>
+          <p style={{ margin: "9px 0 0", fontSize: 14.5, fontWeight: 700, lineHeight: 1.5 }}>
+            {topAlert.messages?.[lang] || topAlert.message}
+          </p>
           <button
-            onClick={() => { if (!window.speechSynthesis) return; window.speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(topAlert.message); u.lang = "en-IN"; u.rate = 0.95; window.speechSynthesis.speak(u); }}
+            onClick={() => {
+              if (!window.speechSynthesis) return;
+              window.speechSynthesis.cancel();
+              const textToSpeak = topAlert.messages?.[lang] || topAlert.message;
+              const u = new SpeechSynthesisUtterance(textToSpeak);
+              u.lang = lang === "hi" ? "hi-IN" : (lang === "bn" ? "bn-IN" : "en-IN");
+              u.rate = 0.95;
+              window.speechSynthesis.speak(u);
+            }}
             className="md-btn md-btn-tonal md-pressable" style={{ marginTop: 10, padding: "7px 14px", fontSize: 12 }}
           >
             <Icon name="volume" size={14} /> Read aloud
@@ -305,7 +382,7 @@ export default function CitizenApp() {
             {alerts.slice(0, 8).map((a) => (
               <div key={a.id} style={{ display: "flex", gap: 11, background: "var(--md-surface-2)", borderRadius: "var(--md-radius-m)", padding: "10px 12px", borderLeft: `4px solid ${LEVEL_COLORS[Math.min(a.level, 4)]}` }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: LEVEL_COLORS[Math.min(a.level, 4)], minWidth: 24 }}>L{a.level}</div>
-                <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.45 }}>{a.message}</div>
+                <div style={{ flex: 1, fontSize: 12.5, lineHeight: 1.45 }}>{a.messages?.[lang] || a.message}</div>
               </div>
             ))}
           </div>

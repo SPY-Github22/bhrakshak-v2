@@ -34,6 +34,16 @@ class UserOut(ORMModel):
     preferred_lang: str
 
 
+class UpdateProfileIn(BaseModel):
+    preferred_lang: str | None = None
+    full_name: str | None = None
+    district: str | None = None
+
+
+class LanguageIn(BaseModel):
+    lang: str
+
+
 # ---------- Zones ----------
 class ZoneOut(ORMModel):
     id: uuid.UUID
@@ -118,8 +128,20 @@ class AlertOut(ORMModel):
     channels: list[str] | None
     recipients: int
     message_template: str | None
+    messages: dict[str, str] | None = None
     ack_at: datetime | None
     fired_at: datetime
+
+
+class ActiveAlertOut(BaseModel):
+    id: str
+    level: int
+    name: str | None = None
+    message: str | None = None
+    messages: dict[str, str] = {}
+    district: str | None = None
+    location_name: str | None = None
+    fired_at: str | None = None
 
 
 class AckIn(BaseModel):

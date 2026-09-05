@@ -797,11 +797,27 @@ DEFAULT_TEMPLATES = {
 }
 
 
-async def render_message(db: AsyncSession, key: str, lang: str, village: str, level_name: str) -> str:
-    res = await db.execute(select(I18nMessage).where(I18nMessage.key == key, I18nMessage.lang == lang))
-    row = res.scalar_one_or_none()
+async def render_message(db: AsyncSession | None, key: str, lang: str, village: str, level_name: str) -> str:
+    row = None
+    if db is not None:
+        try:
+            res = await db.execute(select(I18nMessage).where(I18nMessage.key == key, I18nMessage.lang == lang))
+            row = res.scalar_one_or_none()
+        except Exception:
+            pass
     template = row.template if row else DEFAULT_TEMPLATES.get((key, lang)) or DEFAULT_TEMPLATES.get((key, "en"), "")
     return template.format(village=village, level=level_name, action="Follow district admin instructions")
+
+
+SUPPORTED_LANGUAGES = ["en", "hi", "bn", "as", "ne", "kha", "lus", "mni-Mtei"]
+
+
+async def render_multilingual_messages(db: AsyncSession | None, key: str, village: str, level_name: str) -> dict[str, str]:
+    """Render the alert message across all 8 NER regional languages."""
+    messages: dict[str, str] = {}
+    for lang in SUPPORTED_LANGUAGES:
+        messages[lang] = await render_message(db, key, lang, village, level_name)
+    return messages
 
 
 _REDIS_PUBLISHER = None
@@ -1044,12 +1060,14 @@ async def evaluate_zone(
         cell.model_version = model_version
         cell.updated_at = now
         key = f"alert.l{new_level}" if new_level > prev else "alert.allclear"
-        msg = await render_message(db, key, "en", zone.name or zone.zone_code, LEVEL_NAMES[new_level])
+        messages = await render_multilingual_messages(db, key, zone.name or zone.zone_code, LEVEL_NAMES[new_level])
+        msg = messages.get("en") or await render_message(db, key, "en", zone.name or zone.zone_code, LEVEL_NAMES[new_level])
         if new_level > prev and new_level >= 1:
             alert = Alert(
                 zone_id=zone.id,
                 level=new_level,
                 message_template=msg,
+                messages=messages,
                 lang="en",
                 channels=ALERT_CHANNEL_POLICY.get(new_level, ["push"]),
                 recipients=max(1, (zone.population or 0) // 50),
@@ -1079,11 +1097,21 @@ async def evaluate_zone(
                     "district": zone.district,
                     "level": new_level,
                     "message": msg,
+                    "messages": messages,
                     "channels": ALERT_CHANNEL_POLICY.get(new_level, []),
                 },
             )
         elif new_level < prev:
-            await publish_live("allclear", {"zone_id": str(zone.id), "zone_code": zone.zone_code, "level": new_level})
+            await publish_live(
+                "allclear",
+                {
+                    "zone_id": str(zone.id),
+                    "zone_code": zone.zone_code,
+                    "level": new_level,
+                    "message": msg,
+                    "messages": messages,
+                },
+            )
         await publish_live(
             "risk_diff",
             {"zone_id": str(zone.id), "zone_code": zone.zone_code, "prev": prev, "level": new_level},

@@ -45,4 +45,26 @@ object TokenStore {
     fun email(ctx: Context): String? = runCatching { prefs(ctx).getString(KEY_EMAIL, null) }.getOrNull()
 
     fun clear(ctx: Context) { runCatching { prefs(ctx).edit().clear().apply() } }
+
+    fun deviceId(ctx: Context): String {
+        val p = ctx.getSharedPreferences("bhrakshak_device", Context.MODE_PRIVATE)
+        var id = p.getString("device_id", null)
+        if (id == null) {
+            id = java.util.UUID.randomUUID().toString()
+            p.edit().putString("device_id", id).apply()
+        }
+        return id
+    }
+
+    fun getLang(ctx: Context): String {
+        return ctx.getSharedPreferences("bhrakshak_prefs", Context.MODE_PRIVATE)
+            .getString("preferred_lang", "en") ?: "en"
+    }
+
+    fun setLang(ctx: Context, lang: String) {
+        ctx.getSharedPreferences("bhrakshak_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("preferred_lang", lang)
+            .apply()
+    }
 }

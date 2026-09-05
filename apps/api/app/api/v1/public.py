@@ -28,6 +28,49 @@ class CheckinIn(BaseModel):
     # rotated per-install id: lets the roll call dedupe the same device
     # without ever holding a persistent identifier (DPDP-aligned)
     device_id: str | None = Field(default=None, max_length=64)
+    lang: str = Field(default="en", max_length=10)
+
+
+DEVICE_PREFERENCES: dict[str, dict] = {}
+
+
+class DevicePreferencesIn(BaseModel):
+    device_id: str = Field(..., max_length=64)
+    lang: str = Field(default="en", max_length=10)
+    preferred_lang: str | None = Field(default=None, max_length=10)
+    fcm_token: str | None = Field(default=None, max_length=256)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+
+
+@router.post("/preferences")
+async def set_device_preferences(body: DevicePreferencesIn):
+    """Register or update an unauthenticated device's language preference."""
+    chosen_lang = body.preferred_lang or body.lang
+    DEVICE_PREFERENCES[body.device_id] = {
+        "lang": chosen_lang,
+        "preferred_lang": chosen_lang,
+        "fcm_token": body.fcm_token,
+        "lat": body.lat,
+        "lon": body.lon,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return {
+        "ok": True,
+        "status": "ok",
+        "device_id": body.device_id,
+        "lang": chosen_lang,
+        "preferred_lang": chosen_lang,
+    }
+
+
+@router.get("/preferences/{device_id}")
+async def get_device_preferences(device_id: str):
+    """Retrieve saved language preference for a device."""
+    pref = DEVICE_PREFERENCES.get(device_id)
+    if pref:
+        return {"device_id": device_id, **pref}
+    return {"device_id": device_id, "lang": "en", "preferred_lang": "en", "fcm_token": None, "lat": None, "lon": None}
 
 
 @router.post("/checkin", status_code=201)
@@ -39,6 +82,13 @@ async def citizen_checkin(body: CheckinIn, request: Request, db: AsyncSession = 
         hashlib.sha256(f"{body.device_id}:{request.client.host if request.client else ''}".encode()).hexdigest()[:32]
         if body.device_id else None
     )
+    if body.device_id and body.lang:
+        DEVICE_PREFERENCES[body.device_id] = {
+            "lang": body.lang,
+            "lat": body.lat,
+            "lon": body.lon,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
     row = SafeCheckin(
         geom=WKTElement(f"POINT({body.lon} {body.lat})", srid=4326)
         if body.lat is not None and body.lon is not None else None,
@@ -50,6 +100,7 @@ async def citizen_checkin(body: CheckinIn, request: Request, db: AsyncSession = 
     await publish_live("citizen_checkin", {
         "checkin_id": str(row.id),
         "lat": body.lat, "lon": body.lon,
+        "lang": body.lang,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
     return {"ok": True, "checkin_id": str(row.id)}
