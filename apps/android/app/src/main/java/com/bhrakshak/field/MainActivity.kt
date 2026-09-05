@@ -316,9 +316,37 @@ class MainActivity : AppCompatActivity() {
         stopRadar()
         root.removeAllViews()
         val email = TokenStore.email(this) ?: "user"
-        root.addView(title("BhuRakshak Field"))
+        val isField = email.contains("field")
+        root.addView(title(if (isField) "BhuRakshak Field" else "BhuRakshak Citizen"))
         root.addView(label("Logged in as $email"))
         runCatching { LiveAlertService.start(this) }
+
+        // Automatically announce presence so citizens are discoverable immediately on field radars
+        val selfRole = if (isField) "field" else "citizen"
+        getLocationAndThen { lat, lon ->
+            val la = lat ?: lastLat ?: 24.88
+            val lo = lon ?: lastLon ?: 93.72
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val token = TokenStore.access(this@MainActivity)
+                    val selfPeerId = TokenStore.deviceId(this@MainActivity).replace("-", "").lowercase().take(16)
+                    Api.service.announceNearby(
+                        NearbyAnnounceIn(
+                            peerId = selfPeerId,
+                            alias = email.substringBefore("@"),
+                            role = selfRole,
+                            lat = la,
+                            lon = lo,
+                            needsHelp = false,
+                            batteryPct = 95
+                        ),
+                        token = token?.let { "Bearer $it" }
+                    )
+                } catch (e: Exception) {
+                    // background discovery
+                }
+            }
+        }
 
         // --- Active Emergency Alert Banner Card ---
         val alertCard = TextView(this).apply {
@@ -840,8 +868,9 @@ class MainActivity : AppCompatActivity() {
                     val dynamicBearing = bearingDeg(liveLat, liveLon, peer.lat, peer.lon)
                     val bearingCompass = compassArrow(dynamicBearing)
                     val batteryStr = if (peer.batteryPct != null) " · 🔋 ${peer.batteryPct}%" else ""
+                    val distLabel = if (dynamicDist < 10.0) "0m (At your location · Immediate Proximity)" else "${"%.0f".format(dynamicDist)}m"
 
-                    targetDetails.text = "Distance: ${"%.0f".format(dynamicDist)}m | Bearing: $bearingCompass ${"%.0f".format(dynamicBearing)}°$batteryStr\nGPS: ${"%.5f".format(peer.lat)}, ${"%.5f".format(peer.lon)}"
+                    targetDetails.text = "Distance: $distLabel | Bearing: $bearingCompass ${"%.0f".format(dynamicBearing)}°$batteryStr\nGPS: ${"%.5f".format(peer.lat)}, ${"%.5f".format(peer.lon)}"
                     targetCard.visibility = View.VISIBLE
                 } else {
                     targetCard.visibility = View.GONE
@@ -903,7 +932,8 @@ class MainActivity : AppCompatActivity() {
                             typeface = android.graphics.Typeface.DEFAULT_BOLD
                         }
                         val s = TextView(this@MainActivity).apply {
-                            text = "${"%.0f".format(dynamicDist)}m away · Bearing ${"%.0f".format(dynamicBearing)}° · ${"%.0f".format(p.ageS)}s ago"
+                            val distText = if (dynamicDist < 10.0) "At your location (0m)" else "${"%.0f".format(dynamicDist)}m away"
+                            text = "$distText · Bearing ${"%.0f".format(dynamicBearing)}° · ${"%.0f".format(p.ageS)}s ago"
                             textSize = 12f
                             setTextColor(0xFF94A3B8.toInt())
                         }
@@ -1212,8 +1242,14 @@ class MainActivity : AppCompatActivity() {
                     bearing = (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
                 }
 
-                val distRatio = (dist.toFloat() / radiusM.toFloat()).coerceIn(0f, 1.05f)
-                val r = distRatio * maxR
+                // For targets in the immediate vicinity (< 25m or same location), provide a minimum visual standoff (38f)
+                // so the blip and pulsing SOS rings are clearly visible right next to the "YOU" center dot (radius 14f)
+                val rawR = (dist.toFloat() / radiusM.toFloat()).coerceIn(0f, 1.05f) * maxR
+                val r = if (dist < 25.0) {
+                    Math.max(rawR, 38f)
+                } else {
+                    rawR
+                }
                 val angleRad = Math.toRadians(bearing - 90.0)
                 val px = cx + (r * Math.cos(angleRad)).toFloat()
                 val py = cy + (r * Math.sin(angleRad)).toFloat()
@@ -1231,17 +1267,18 @@ class MainActivity : AppCompatActivity() {
                 canvas.drawLine(cx, cy, px, py, linePaint)
 
                 // Draw peer blip
+                val distTag = if (dist < 10.0) " (0m · HERE)" else " (${dist.toInt()}m)"
                 if (p.needsHelp) {
                     val pulseR = 14f + pulsePhase * 16f
                     canvas.drawCircle(px, py, pulseR, sosPulsePaint)
                     canvas.drawCircle(px, py, 14f, sosDotPaint)
-                    canvas.drawText("🚨 ${p.alias}", px + 18f, py + 8f, if (isSelected) targetLabelPaint else peerLabelPaint)
+                    canvas.drawText("🚨 ${p.alias}$distTag", px + 18f, py + 8f, if (isSelected) targetLabelPaint else peerLabelPaint)
                 } else if (p.role == "field") {
                     canvas.drawCircle(px, py, 12f, fieldDotPaint)
-                    canvas.drawText("👮 ${p.alias}", px + 16f, py + 8f, if (isSelected) targetLabelPaint else textPaint)
+                    canvas.drawText("👮 ${p.alias}$distTag", px + 16f, py + 8f, if (isSelected) targetLabelPaint else textPaint)
                 } else {
                     canvas.drawCircle(px, py, 11f, peerDotPaint)
-                    canvas.drawText(p.alias, px + 16f, py + 8f, if (isSelected) targetLabelPaint else textPaint)
+                    canvas.drawText("${p.alias}$distTag", px + 16f, py + 8f, if (isSelected) targetLabelPaint else textPaint)
                 }
 
                 // If selected, draw highlighting target ring
@@ -1252,8 +1289,8 @@ class MainActivity : AppCompatActivity() {
                         strokeWidth = 4f
                     }
                     canvas.drawCircle(px, py, 22f, ringP)
-                    val distTag = "${dist.toInt()}m"
-                    canvas.drawText(distTag, (cx + px) / 2f, (cy + py) / 2f - 8f, targetLabelPaint)
+                    val callout = if (dist < 10.0) "0m HERE" else "${dist.toInt()}m"
+                    canvas.drawText(callout, (cx + px) / 2f, (cy + py) / 2f - 8f, targetLabelPaint)
                 }
             }
 
