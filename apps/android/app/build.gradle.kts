@@ -14,10 +14,9 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0"
-        // Local emulator loopback (adb reverse tcp:8000 -> host:8000)
-        buildConfigField("String", "API_BASE_URL", "\"http://127.0.0.1:8000\"")
-        buildConfigField("String", "WS_URL", "\"ws://127.0.0.1:8000/ws/live\"")
+        // Active Cloudflare tunnel endpoint (works anywhere, mobile data + Wi-Fi)
+        buildConfigField("String", "API_BASE_URL", "\"https://wars-yrs-regularly-evaluating.trycloudflare.com\"")
+        buildConfigField("String", "WS_URL", "\"wss://wars-yrs-regularly-evaluating.trycloudflare.com/ws/live\"")
     }
 
     buildTypes {
