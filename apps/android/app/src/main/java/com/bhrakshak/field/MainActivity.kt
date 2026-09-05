@@ -109,6 +109,7 @@ class MainActivity : AppCompatActivity() {
     private var radarJob: Job? = null
     private var radarSensorListener: SensorEventListener? = null
     private var radarLocationCallback: LocationCallback? = null
+    private var currentDeviceHeading: Float = 0f
 
     private fun stopRadar() {
         radarJob?.cancel()
@@ -749,6 +750,26 @@ class MainActivity : AppCompatActivity() {
         return arrows[idx]
     }
 
+    private fun relativeDirectionText(relDeg: Double): String {
+        val norm = (relDeg % 360.0 + 360.0) % 360.0
+        return when {
+            norm < 22.5 || norm >= 337.5 -> "Straight Ahead"
+            norm < 67.5 -> "Ahead Right"
+            norm < 112.5 -> "To Your Right"
+            norm < 157.5 -> "Behind Right"
+            norm < 202.5 -> "Behind You"
+            norm < 247.5 -> "Behind Left"
+            norm < 292.5 -> "To Your Left"
+            else -> "Ahead Left"
+        }
+    }
+
+    private fun cardinalDirection(deg: Double): String {
+        val cardinals = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+        val idx = (((deg % 360 + 360) % 360 + 22.5) / 45.0).toInt() % 8
+        return cardinals[idx]
+    }
+
     private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val dLat = Math.toRadians(lat2 - lat1)
         val dLon = Math.toRadians(lon2 - lon1)
@@ -949,12 +970,17 @@ class MainActivity : AppCompatActivity() {
 
                     // Recalculate dynamic distance from live phone location
                     val dynamicDist = haversineM(liveLat, liveLon, peer.lat, peer.lon)
-                    val dynamicBearing = bearingDeg(liveLat, liveLon, peer.lat, peer.lon)
-                    val bearingCompass = compassArrow(dynamicBearing)
+                    val rawBearing = bearingDeg(liveLat, liveLon, peer.lat, peer.lon)
+                    val smoothedBearing = radarView.smoothBearing(peer.peerId, rawBearing, dynamicDist)
                     val batteryStr = if (peer.batteryPct != null) " · 🔋 ${peer.batteryPct}%" else ""
                     val distLabel = if (dynamicDist < 10.0) "0m (At your location · Immediate Proximity)" else "${"%.0f".format(dynamicDist)}m"
 
-                    targetDetails.text = "Distance: $distLabel | Bearing: $bearingCompass ${"%.0f".format(dynamicBearing)}°$batteryStr\nGPS: ${"%.5f".format(peer.lat)}, ${"%.5f".format(peer.lon)}"
+                    // Relative direction relative to where phone is currently pointing
+                    val relBearing = (smoothedBearing - currentDeviceHeading + 360.0) % 360.0
+                    val relArrow = compassArrow(if (isHeadUp) relBearing else smoothedBearing)
+                    val relText = if (isHeadUp) relativeDirectionText(relBearing) else cardinalDirection(smoothedBearing)
+
+                    targetDetails.text = "Distance: $distLabel | Direction: $relArrow $relText\nTarget Bearing: ${"%.0f".format(smoothedBearing)}° (${cardinalDirection(smoothedBearing)})$batteryStr\nGPS: ${"%.5f".format(peer.lat)}, ${"%.5f".format(peer.lon)}"
                     targetCard.visibility = View.VISIBLE
                 } else {
                     targetCard.visibility = View.GONE
@@ -990,7 +1016,12 @@ class MainActivity : AppCompatActivity() {
                 }
                 for (p in peers) {
                     val dynamicDist = haversineM(liveLat, liveLon, p.lat, p.lon)
-                    val dynamicBearing = bearingDeg(liveLat, liveLon, p.lat, p.lon)
+                    val rawBearing = bearingDeg(liveLat, liveLon, p.lat, p.lon)
+                    val smoothedBearing = radarView.smoothBearing(p.peerId, rawBearing, dynamicDist)
+                    val relBearing = (smoothedBearing - currentDeviceHeading + 360.0) % 360.0
+                    val relArrow = compassArrow(if (isHeadUp) relBearing else smoothedBearing)
+                    val relText = if (isHeadUp) relativeDirectionText(relBearing) else cardinalDirection(smoothedBearing)
+
                     val card = LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         setPadding(24, 20, 24, 20)
@@ -1002,7 +1033,7 @@ class MainActivity : AppCompatActivity() {
                         setOnClickListener { updateTargetCard(p) }
                     }
                     val arrowView = TextView(this@MainActivity).apply {
-                        text = compassArrow(dynamicBearing)
+                        text = relArrow
                         textSize = 20f
                         setTextColor(if (p.needsHelp) 0xFFEF4444.toInt() else 0xFF38BDF8.toInt())
                         setPadding(0, 0, 24, 0)
@@ -1017,7 +1048,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         val s = TextView(this@MainActivity).apply {
                             val distText = if (dynamicDist < 10.0) "At your location (0m)" else "${"%.0f".format(dynamicDist)}m away"
-                            text = "$distText · Bearing ${"%.0f".format(dynamicBearing)}° · ${"%.0f".format(p.ageS)}s ago"
+                            text = "$distText · $relText (${"%.0f".format(smoothedBearing)}°) · ${"%.0f".format(p.ageS)}s ago"
                             textSize = 12f
                             setTextColor(0xFF94A3B8.toInt())
                         }
@@ -1038,17 +1069,37 @@ class MainActivity : AppCompatActivity() {
                 override fun onNothingSelected(p0: AdapterView<*>?) {}
             }
 
-            // Real-time hardware compass sensor listener
+            // Real-time hardware compass sensor listener with coordinate remapping and smoothing
             sensorListener = object : SensorEventListener {
+                private var smoothedAzimuth = 0f
                 override fun onSensorChanged(event: SensorEvent?) {
                     if (event == null || event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
                     val rotationMatrix = FloatArray(9)
                     SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+
+                    // Remap coordinate system for handheld viewing posture (AXIS_X, AXIS_Z)
+                    val remappedMatrix = FloatArray(9)
+                    SensorManager.remapCoordinateSystem(
+                        rotationMatrix,
+                        SensorManager.AXIS_X,
+                        SensorManager.AXIS_Z,
+                        remappedMatrix
+                    )
                     val orientation = FloatArray(3)
-                    SensorManager.getOrientation(rotationMatrix, orientation)
-                    val azimuthDeg = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360f) % 360f
-                    radarView.setHeading(azimuthDeg)
-                    modeBtn.text = if (isHeadUp) "🧭 ORIENTATION: HEAD-UP (${"%.0f".format(azimuthDeg)}° ${compassArrow(azimuthDeg.toDouble())})" else "🧭 ORIENTATION: NORTH-UP (Locked)"
+                    SensorManager.getOrientation(remappedMatrix, orientation)
+                    val rawAzimuthDeg = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360f) % 360f
+
+                    // Angular low-pass filter to eliminate hand jitter
+                    val diff = ((rawAzimuthDeg - smoothedAzimuth + 540f) % 360f) - 180f
+                    smoothedAzimuth = (smoothedAzimuth + 0.25f * diff + 360f) % 360f
+
+                    currentDeviceHeading = smoothedAzimuth
+                    radarView.setHeading(smoothedAzimuth)
+                    val cardinal = cardinalDirection(smoothedAzimuth.toDouble())
+                    modeBtn.text = if (isHeadUp) "🧭 ORIENTATION: HEAD-UP (${"%.0f".format(smoothedAzimuth)}° $cardinal)" else "🧭 ORIENTATION: NORTH-UP (Locked)"
+                    if (selectedPeer != null) {
+                        updateTargetCard(selectedPeer)
+                    }
                 }
                 override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
             }
@@ -1271,6 +1322,28 @@ class MainActivity : AppCompatActivity() {
             invalidate()
         }
 
+        private val peerBearingHistory = mutableMapOf<String, Double>()
+
+        fun smoothBearing(peerId: String, rawBearing: Double, dist: Double): Double {
+            val prev = peerBearingHistory[peerId]
+            if (prev == null) {
+                peerBearingHistory[peerId] = rawBearing
+                return rawBearing
+            }
+            if (dist < 3.0) {
+                return prev
+            }
+            val diff = ((rawBearing - prev + 540.0) % 360.0) - 180.0
+            val alpha = when {
+                dist < 10.0 -> 0.20
+                dist < 25.0 -> 0.35
+                else -> 0.60
+            }
+            val smoothed = (prev + alpha * diff + 360.0) % 360.0
+            peerBearingHistory[peerId] = smoothed
+            return smoothed
+        }
+
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val w = width.toFloat()
@@ -1329,7 +1402,8 @@ class MainActivity : AppCompatActivity() {
                     val y = Math.sin(dLon) * Math.cos(Math.toRadians(p.lat))
                     val x = Math.cos(Math.toRadians(rescuerLat)) * Math.sin(Math.toRadians(p.lat)) -
                             Math.sin(Math.toRadians(rescuerLat)) * Math.cos(Math.toRadians(p.lat)) * Math.cos(dLon)
-                    bearing = (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
+                    val rawBearing = (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
+                    bearing = smoothBearing(p.peerId, rawBearing, dist)
                 }
 
                 // For targets in the immediate vicinity (< 25m or same location), provide a minimum visual standoff (38f)
