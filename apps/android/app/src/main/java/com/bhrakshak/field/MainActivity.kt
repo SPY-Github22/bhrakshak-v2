@@ -506,7 +506,8 @@ class MainActivity : AppCompatActivity() {
         })
         root.addView(button("🚨 SOS DISTRESS BEACON (Broadcast For Help)", 0xFFDC2626.toInt()) { triggerSosDistress() })
         root.addView(button("I'M SAFE — check in", 0xFF059669.toInt()) { safeCheckin() })
-        root.addView(button("📡 PEOPLE NEARBY (Tactical Rescue Radar)", 0xFF0284C7.toInt()) { showNearbyRadar() })
+        root.addView(button("📍 DEMO LOCATION (Live Device GPS Radar)", 0xFF0284C7.toInt()) { showDemoLocationRadar() })
+        root.addView(button("📡 PEOPLE NEARBY (Tactical Rescue Radar)", 0xFF1E293B.toInt()) { showNearbyRadar() })
         root.addView(button("SAFEST ROUTE (pathway model)", 0xFF0284C7.toInt()) { showSafeRoute() })
         root.addView(button("💬 LIVE EMERGENCY CHAT (Command Center)", 0xFF2563EB.toInt()) { lifecycleScope.launch { showChatScreen() } })
         root.addView(button("RAIN GAUGE (nearest zone)", 0xFF7C3AED.toInt()) { showRainGauge() })
@@ -769,14 +770,39 @@ class MainActivity : AppCompatActivity() {
         getLocationAndThen { lat, lon ->
             val la = lat ?: lastLat ?: 24.88
             val lo = lon ?: lastLon ?: 93.72
-            lifecycleScope.launch { radarScreen(la, lo) }
+            lifecycleScope.launch { radarScreen(la, lo, isDemoMode = false) }
         }
     }
 
+    private fun showDemoLocationRadar() {
+        isLocationSimulated = false
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            return
+        }
+        val fused = LocationServices.getFusedLocationProviderClient(this)
+        fused.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
+            .addOnSuccessListener { loc ->
+                val la = loc?.latitude ?: lastLat ?: 24.88
+                val lo = loc?.longitude ?: lastLon ?: 93.72
+                lifecycleScope.launch { radarScreen(la, lo, isDemoMode = true, initialAccuracy = loc?.accuracy) }
+            }
+            .addOnFailureListener {
+                val la = lastLat ?: 24.88
+                val lo = lastLon ?: 93.72
+                lifecycleScope.launch { radarScreen(la, lo, isDemoMode = true, initialAccuracy = null) }
+            }
+    }
+
     @SuppressLint("MissingPermission")
-    private suspend fun radarScreen(rescuerLat: Double, rescuerLon: Double) {
+    private suspend fun radarScreen(
+        rescuerLat: Double,
+        rescuerLon: Double,
+        isDemoMode: Boolean = false,
+        initialAccuracy: Float? = null,
+    ) {
         radarJob?.cancel()
-        var currentRadiusM = 500
+        var currentRadiusM = if (isDemoMode) 50 else 500
         var liveLat = rescuerLat
         var liveLon = rescuerLon
         var selectedPeer: NearbyPeerOut? = null
@@ -793,8 +819,19 @@ class MainActivity : AppCompatActivity() {
 
         withContext(Dispatchers.Main) {
             root.removeAllViews()
-            root.addView(title("📡 PEOPLE NEARBY (Tactical Radar)"))
-            root.addView(label("Live Device Heading Orientation & Proximity Triage"))
+            val screenTitle = if (isDemoMode) "📍 DEMO LOCATION (Live Device GPS)" else "📡 PEOPLE NEARBY (Tactical Radar)"
+            val screenSubtitle = if (isDemoMode) "Judge Live Proximity Presentation (Zero Simulation)" else "Live Device Heading Orientation & Proximity Triage"
+            root.addView(title(screenTitle))
+            root.addView(label(screenSubtitle))
+
+            var gpsBadge: TextView? = null
+            if (isDemoMode) {
+                val accText = if (initialAccuracy != null) "±${"%.1f".format(initialAccuracy)}m" else "Acquiring..."
+                gpsBadge = mono("🛰️ Live Hardware GPS: ${"%.5f".format(rescuerLat)}°N, ${"%.5f".format(rescuerLon)}°E ($accText)", 13f).apply {
+                    setTextColor(0xFF38BDF8.toInt())
+                }
+                root.addView(gpsBadge)
+            }
 
             fun cleanupAndExit() {
                 stopRadar()
@@ -813,21 +850,68 @@ class MainActivity : AppCompatActivity() {
             }
             root.addView(modeBtn)
 
+            // Live Role Switcher for Demo Mode
+            val selfEmail = TokenStore.email(this@MainActivity) ?: "Presenter"
+            var demoNeedsHelp = !selfEmail.contains("field")
+            var demoRole = if (demoNeedsHelp) "citizen" else "field"
+            if (isDemoMode) {
+                val roleBtn = Button(this@MainActivity).apply {
+                    textSize = 13f
+                    setTextColor(0xFFFFFFFF.toInt())
+                    setBackgroundColor(if (demoNeedsHelp) 0xFFDC2626.toInt() else 0xFF0284C7.toInt())
+                    text = if (demoNeedsHelp) "🚨 DEMO MODE: SOS VICTIM (Broadcasting Coordinates)" else "👮 DEMO MODE: RESCUER (Tracking Beacon)"
+                    setOnClickListener {
+                        demoNeedsHelp = !demoNeedsHelp
+                        demoRole = if (demoNeedsHelp) "citizen" else "field"
+                        text = if (demoNeedsHelp) "🚨 DEMO MODE: SOS VICTIM (Broadcasting Coordinates)" else "👮 DEMO MODE: RESCUER (Tracking Beacon)"
+                        setBackgroundColor(if (demoNeedsHelp) 0xFFDC2626.toInt() else 0xFF0284C7.toInt())
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val token = TokenStore.access(this@MainActivity)
+                                val selfPeerId = TokenStore.deviceId(this@MainActivity).replace("-", "").lowercase().take(16)
+                                Api.service.announceNearby(
+                                    NearbyAnnounceIn(
+                                        peerId = selfPeerId,
+                                        alias = selfEmail.substringBefore("@"),
+                                        role = demoRole,
+                                        lat = liveLat,
+                                        lon = liveLon,
+                                        needsHelp = demoNeedsHelp,
+                                        batteryPct = 95
+                                    ),
+                                    token = token?.let { "Bearer $it" }
+                                )
+                            } catch (e: Exception) {}
+                        }
+                    }
+                }
+                root.addView(roleBtn)
+            }
+
             // Radius selector
             root.addView(label("RADAR SCAN RADIUS:"))
-            val radiusOptions = listOf(
-                250 to "Range: 250 meters",
-                500 to "Range: 500 meters (Standard)",
-                1000 to "Range: 1,000 meters (1 km)",
-                3000 to "Range: 3,000 meters (3 km)",
-            )
+            val radiusOptions = if (isDemoMode) {
+                listOf(
+                    50 to "Range: 50 meters (Room / Stage Demo)",
+                    100 to "Range: 100 meters (Hallway / Floor Demo)",
+                    250 to "Range: 250 meters (Campus Demo)",
+                    500 to "Range: 500 meters (Standard)",
+                )
+            } else {
+                listOf(
+                    250 to "Range: 250 meters",
+                    500 to "Range: 500 meters (Standard)",
+                    1000 to "Range: 1,000 meters (1 km)",
+                    3000 to "Range: 3,000 meters (3 km)",
+                )
+            }
             val radiusSpinner = Spinner(this@MainActivity).apply {
                 adapter = ArrayAdapter(
                     this@MainActivity,
                     android.R.layout.simple_spinner_dropdown_item,
                     radiusOptions.map { it.second },
                 )
-                setSelection(1) // 500m default
+                setSelection(if (isDemoMode) 0 else 1)
             }
             root.addView(radiusSpinner)
 
@@ -975,16 +1059,18 @@ class MainActivity : AppCompatActivity() {
 
             // Real-time continuous GPS tracking
             val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
-                .setMinUpdateDistanceMeters(0.5f)
+                .setMinUpdateDistanceMeters(if (isDemoMode) 0.0f else 0.5f)
+                .setMinUpdateIntervalMillis(500L)
                 .build()
 
             locationCallback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
                     val loc = result.lastLocation ?: return
-                    if (!isLocationSimulated) {
+                    if (!isLocationSimulated || isDemoMode) {
                         liveLat = loc.latitude
                         liveLon = loc.longitude
                         radarView.updateRescuerLocation(liveLat, liveLon)
+                        gpsBadge?.text = "🛰️ Live GPS: ${"%.5f".format(loc.latitude)}°N, ${"%.5f".format(loc.longitude)}°E (±${"%.1f".format(loc.accuracy)}m)"
                         if (selectedPeer != null) {
                             updateTargetCard(selectedPeer)
                         }
@@ -996,30 +1082,30 @@ class MainActivity : AppCompatActivity() {
                 radarLocationCallback = locationCallback
             }
 
-            // Live Network Polling Loop (Zero hardcoded names)
+            // Live Network Polling & Broadcast Loop (Zero hardcoded names)
             radarJob = lifecycleScope.launch(Dispatchers.IO) {
                 val token = TokenStore.access(this@MainActivity)
                 val authHeader = token?.let { "Bearer $it" }
                 val selfPeerId = TokenStore.deviceId(this@MainActivity).replace("-", "").lowercase().take(16)
-                val selfEmail = TokenStore.email(this@MainActivity) ?: "Field Official"
-                try {
-                    Api.service.announceNearby(
-                        NearbyAnnounceIn(
-                            peerId = selfPeerId,
-                            alias = selfEmail.substringBefore("@"),
-                            role = "field",
-                            lat = liveLat,
-                            lon = liveLon,
-                            needsHelp = false,
-                            batteryPct = 95
-                        ),
-                        token = authHeader
-                    )
-                } catch (e: Exception) {
-                    // Offline tolerance
-                }
 
                 while (isActive) {
+                    try {
+                        Api.service.announceNearby(
+                            NearbyAnnounceIn(
+                                peerId = selfPeerId,
+                                alias = selfEmail.substringBefore("@"),
+                                role = if (isDemoMode) demoRole else "field",
+                                lat = liveLat,
+                                lon = liveLon,
+                                needsHelp = if (isDemoMode) demoNeedsHelp else false,
+                                batteryPct = 95
+                            ),
+                            token = authHeader
+                        )
+                    } catch (e: Exception) {
+                        // Offline tolerance
+                    }
+
                     var queryPeers: List<NearbyPeerOut> = emptyList()
                     try {
                         val res = Api.service.queryNearby(
@@ -1040,9 +1126,11 @@ class MainActivity : AppCompatActivity() {
                     withContext(Dispatchers.Main) {
                         val sosCount = peersList.count { it.needsHelp }
                         kpiText.text = if (peersList.isEmpty()) {
-                            "🔍 Scanning sector... (0 broadcasts in ${currentRadiusM}m)"
+                            if (isDemoMode) "🔍 Scanning for devices... (0 nearby in ${currentRadiusM}m)"
+                            else "🔍 Scanning sector... (0 broadcasts in ${currentRadiusM}m)"
                         } else {
-                            "👥 ${peersList.size} Peers in Range  |  🚨 $sosCount SOS Distress Alerts"
+                            if (isDemoMode) "👥 ${peersList.size} Devices in Range  |  🚨 $sosCount SOS Alerts"
+                            else "👥 ${peersList.size} Peers in Range  |  🚨 $sosCount SOS Distress Alerts"
                         }
                         radarView.updateRescuerLocation(liveLat, liveLon)
                         radarView.setPeers(peersList)
@@ -1053,10 +1141,12 @@ class MainActivity : AppCompatActivity() {
                         } else if (sosCount > 0) {
                             val nearestSos = peersList.filter { it.needsHelp }.minByOrNull { it.distanceM }
                             updateTargetCard(nearestSos)
+                        } else if (peersList.isNotEmpty()) {
+                            updateTargetCard(peersList.first())
                         }
                     }
 
-                    delay(3000L)
+                    delay(if (isDemoMode) 2000L else 3000L)
                 }
             }
         }
