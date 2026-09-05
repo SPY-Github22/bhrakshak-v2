@@ -138,6 +138,7 @@ export interface AlertRow {
   channels: string[] | null;
   recipients: number;
   message_template: string | null;
+  messages?: Record<string, string>;
   ack_at: string | null;
   fired_at: string;
 }

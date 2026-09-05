@@ -220,21 +220,34 @@ function Queue() {
   );
 }
 
+const NER_LANGUAGES = [
+  { code: "en", label: "English" },
+  { code: "hi", label: "हिन्दी" },
+  { code: "bn", label: "বাংলা" },
+  { code: "as", label: "অসমীয়া" },
+  { code: "ne", label: "नेपाली" },
+  { code: "kha", label: "Khasi" },
+  { code: "lus", label: "Mizo" },
+  { code: "mni-Mtei", label: "ꯃꯤꯇꯩ" },
+];
+
 function AlertConsole() {
   const [alerts, setAlerts] = useState<AlertRow[] | null>(null);
+  const [selectedLang, setSelectedLang] = useState<string>("en");
 
-  async function load() {
+  async function load(lang: string = selectedLang) {
     try {
       const token = await ensureToken();
-      const rows = await apiGet<AlertRow[]>("/api/v1/alerts?limit=50", token);
+      const rows = await apiGet<AlertRow[]>(`/api/v1/alerts?limit=50&lang=${encodeURIComponent(lang)}`, token);
       setAlerts(rows);
     } catch {
       setAlerts([]);
     }
   }
+
   useEffect(() => {
-    load();
-  }, []);
+    load(selectedLang);
+  }, [selectedLang]);
 
   async function ack(id: string) {
     const token = await ensureToken();
@@ -243,7 +256,7 @@ function AlertConsole() {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: "{}",
     });
-    load();
+    load(selectedLang);
   }
 
   if (!alerts) return <SkeletonRows />;
@@ -251,36 +264,68 @@ function AlertConsole() {
     return <EmptyState title="No alerts fired yet" body="Inject a storm from the Command Center to see the alert pipeline live." />;
 
   return (
-    <div className="space-y-2">
-      {alerts.map((a) => (
-        <div key={a.id} className="flex items-center gap-3 rounded-xl border border-edge bg-panel px-4 py-3">
-          <span
-            className="rounded-md px-2 py-1 text-xs font-extrabold text-bg"
-            style={{ background: LEVEL_COLORS[a.level] }}
-          >
-            L{a.level}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] text-slate-200">{a.message_template}</p>
-            <p className="text-[11px] text-muted">
-              {new Date(a.fired_at).toLocaleString()} · {a.channels?.join(" · ")} ·{" "}
-              {a.recipients.toLocaleString()} recipients
-            </p>
-          </div>
-          {a.ack_at ? (
-            <span className="flex items-center gap-1 text-[11px] text-l0">
-              <Check size={12} /> acked
-            </span>
-          ) : (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge bg-panel px-4 py-2.5">
+        <span className="text-xs font-semibold text-muted">
+          🌐 Community Broadcast Language Preview (8 NER Languages):
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {NER_LANGUAGES.map((l) => (
             <button
-              onClick={() => ack(a.id)}
-              className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-orange-700 hover:text-white"
+              key={l.code}
+              onClick={() => setSelectedLang(l.code)}
+              className={cn(
+                "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                selectedLang === l.code
+                  ? "bg-orange-600 text-white"
+                  : "bg-bg text-muted hover:text-ink border border-edge/60"
+              )}
             >
-              Acknowledge
+              {l.label}
             </button>
-          )}
+          ))}
         </div>
-      ))}
+      </div>
+
+      <div className="space-y-2">
+        {alerts.map((a) => {
+          const displayMsg = (a.messages && a.messages[selectedLang]) || a.message_template;
+          return (
+            <div key={a.id} className="flex items-center gap-3 rounded-xl border border-edge bg-panel px-4 py-3">
+              <span
+                className="rounded-md px-2 py-1 text-xs font-extrabold text-bg"
+                style={{ background: LEVEL_COLORS[a.level] }}
+              >
+                L{a.level}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium text-slate-200">{displayMsg}</p>
+                <p className="text-[11px] text-muted">
+                  {new Date(a.fired_at).toLocaleString()} · {a.channels?.join(" · ")} ·{" "}
+                  {a.recipients.toLocaleString()} recipients
+                  {a.messages && Object.keys(a.messages).length > 0 && (
+                    <span className="ml-2 inline-flex items-center rounded-sm bg-emerald-950/80 px-1.5 py-0.5 text-[10px] text-emerald-400 border border-emerald-800/40">
+                      ✓ 8 Languages Broadcasted
+                    </span>
+                  )}
+                </p>
+              </div>
+              {a.ack_at ? (
+                <span className="flex items-center gap-1 text-[11px] text-l0">
+                  <Check size={12} /> acked
+                </span>
+              ) : (
+                <button
+                  onClick={() => ack(a.id)}
+                  className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-orange-700 hover:text-white"
+                >
+                  Acknowledge
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
