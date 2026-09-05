@@ -14,9 +14,9 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        // Active Cloudflare tunnel endpoint (works anywhere, mobile data + Wi-Fi)
-        buildConfigField("String", "API_BASE_URL", "\"https://wars-yrs-regularly-evaluating.trycloudflare.com\"")
-        buildConfigField("String", "WS_URL", "\"wss://wars-yrs-regularly-evaluating.trycloudflare.com/ws/live\"")
+        // Active Cloudflare tunnel endpoint (IPv4 HTTP/2, rock-solid stability)
+        buildConfigField("String", "API_BASE_URL", "\"https://realtor-ons-cho-narrow.trycloudflare.com\"")
+        buildConfigField("String", "WS_URL", "\"wss://realtor-ons-cho-narrow.trycloudflare.com/ws/live\"")
     }
 
     buildTypes {
