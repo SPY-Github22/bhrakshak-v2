@@ -401,11 +401,13 @@ interface BhrakshakApi {
     @POST("api/v1/nearby/announce")
     suspend fun announceNearby(
         @Body body: NearbyAnnounceIn,
+        @Header("Authorization") token: String? = null,
     ): okhttp3.ResponseBody
 
     @POST("api/v1/nearby/query")
     suspend fun queryNearby(
         @Body body: NearbyQueryIn,
+        @Header("Authorization") token: String? = null,
     ): NearbyQueryOut
 }
 

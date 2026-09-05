@@ -8,6 +8,11 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -16,6 +21,10 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.view.View
 import android.view.MotionEvent
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.Priority
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -98,6 +107,21 @@ class MainActivity : AppCompatActivity() {
     private var chatJob: Job? = null
     private var riskJob: Job? = null
     private var radarJob: Job? = null
+    private var radarSensorListener: SensorEventListener? = null
+    private var radarLocationCallback: LocationCallback? = null
+
+    private fun stopRadar() {
+        radarJob?.cancel()
+        radarJob = null
+        radarSensorListener?.let { l ->
+            runCatching { (getSystemService(Context.SENSOR_SERVICE) as? SensorManager)?.unregisterListener(l) }
+        }
+        radarSensorListener = null
+        radarLocationCallback?.let { cb ->
+            runCatching { LocationServices.getFusedLocationProviderClient(this@MainActivity).removeLocationUpdates(cb) }
+        }
+        radarLocationCallback = null
+    }
 
     private val prefs by lazy { getSharedPreferences("bhrakshak_cache", Context.MODE_PRIVATE) }
 
@@ -219,7 +243,7 @@ class MainActivity : AppCompatActivity() {
     private fun showLogin() {
         chatJob?.cancel(); chatJob = null
         riskJob?.cancel(); riskJob = null
-        radarJob?.cancel(); radarJob = null
+        stopRadar()
         root.removeAllViews()
         root.addView(title("Bhu"))
         root.addView(TextView(this).apply {
@@ -289,7 +313,7 @@ class MainActivity : AppCompatActivity() {
     private fun showHome() {
         chatJob?.cancel(); chatJob = null
         riskJob?.cancel(); riskJob = null
-        radarJob?.cancel(); radarJob = null
+        stopRadar()
         root.removeAllViews()
         val email = TokenStore.email(this) ?: "user"
         root.addView(title("BhuRakshak Field"))
@@ -452,6 +476,7 @@ class MainActivity : AppCompatActivity() {
             )
             Toast.makeText(this@MainActivity, "Notification sent! Check your top status bar.", Toast.LENGTH_SHORT).show()
         })
+        root.addView(button("🚨 SOS DISTRESS BEACON (Broadcast For Help)", 0xFFDC2626.toInt()) { triggerSosDistress() })
         root.addView(button("I'M SAFE — check in", 0xFF059669.toInt()) { safeCheckin() })
         root.addView(button("📡 PEOPLE NEARBY (Tactical Rescue Radar)", 0xFF0284C7.toInt()) { showNearbyRadar() })
         root.addView(button("SAFEST ROUTE (pathway model)", 0xFF0284C7.toInt()) { showSafeRoute() })
@@ -628,12 +653,62 @@ class MainActivity : AppCompatActivity() {
         )
     }.getOrDefault(emptyList())
 
-    // ------------------------------------------------------------------ I'm safe check-in
+    // ------------------------------------------------------------------ I'm safe check-in & SOS Beacon
     private fun safeCheckin() {
         getLocationAndThen { lat, lon ->
+            val la = lat ?: lastLat ?: 24.88
+            val lo = lon ?: lastLon ?: 93.72
             lifecycleScope.launch {
-                db.checkinDao().add(SafeCheckin(lat = lat, lon = lon, ts = nowIso()))
-                Toast.makeText(this@MainActivity, "Check-in recorded ✓ (stored on device, survives offline)", Toast.LENGTH_SHORT).show()
+                db.checkinDao().add(SafeCheckin(lat = la, lon = lo, ts = nowIso()))
+                try {
+                    val token = TokenStore.access(this@MainActivity)
+                    val email = TokenStore.email(this@MainActivity) ?: "Citizen"
+                    val selfPeerId = TokenStore.deviceId(this@MainActivity).replace("-", "").lowercase().take(16)
+                    Api.service.announceNearby(
+                        NearbyAnnounceIn(
+                            peerId = selfPeerId,
+                            alias = email.substringBefore("@"),
+                            role = "citizen",
+                            lat = la,
+                            lon = lo,
+                            needsHelp = false,
+                            batteryPct = 100
+                        ),
+                        token = token?.let { "Bearer $it" }
+                    )
+                } catch (e: Exception) {
+                    // Stored on device, survives offline
+                }
+                Toast.makeText(this@MainActivity, "Check-in recorded ✓ (stored on device & updated on rescue radar)", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun triggerSosDistress() {
+        getLocationAndThen { lat, lon ->
+            val la = lat ?: lastLat ?: 24.88
+            val lo = lon ?: lastLon ?: 93.72
+            lifecycleScope.launch {
+                try {
+                    val token = TokenStore.access(this@MainActivity)
+                    val email = TokenStore.email(this@MainActivity) ?: "Citizen"
+                    val selfPeerId = TokenStore.deviceId(this@MainActivity).replace("-", "").lowercase().take(16)
+                    Api.service.announceNearby(
+                        NearbyAnnounceIn(
+                            peerId = selfPeerId,
+                            alias = email.substringBefore("@"),
+                            role = "citizen",
+                            lat = la,
+                            lon = lo,
+                            needsHelp = true,
+                            batteryPct = 95
+                        ),
+                        token = token?.let { "Bearer $it" }
+                    )
+                    Toast.makeText(this@MainActivity, "🚨 SOS BEACON ACTIVE!\nYour GPS position is blinking on nearby field rescue radars.", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, "SOS broadcast error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -645,6 +720,23 @@ class MainActivity : AppCompatActivity() {
         return arrows[idx]
     }
 
+    private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        return 2 * 6371000.0 * Math.asin(Math.min(1.0, Math.sqrt(a)))
+    }
+
+    private fun bearingDeg(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val dLon = Math.toRadians(lon2 - lon1)
+        val y = Math.sin(dLon) * Math.cos(Math.toRadians(lat2))
+        val x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) -
+                Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(dLon)
+        return (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
+    }
+
     private fun showNearbyRadar() {
         getLocationAndThen { lat, lon ->
             val la = lat ?: lastLat ?: 24.88
@@ -653,23 +745,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private suspend fun radarScreen(rescuerLat: Double, rescuerLon: Double) {
         radarJob?.cancel()
         var currentRadiusM = 500
+        var liveLat = rescuerLat
+        var liveLon = rescuerLon
         var selectedPeer: NearbyPeerOut? = null
         var peersList: List<NearbyPeerOut> = emptyList()
+        var isHeadUp = true
+
+        val sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        val fusedClient = LocationServices.getFusedLocationProviderClient(this@MainActivity)
+
+        lateinit var sensorListener: SensorEventListener
+        lateinit var locationCallback: LocationCallback
+        lateinit var radarView: NearbyRadarView
 
         withContext(Dispatchers.Main) {
             root.removeAllViews()
             root.addView(title("📡 PEOPLE NEARBY (Tactical Radar)"))
-            root.addView(label("Proximity Triage & Bearing Vectors for First Responders"))
+            root.addView(label("Live Device Heading Orientation & Proximity Triage"))
 
-            val backBtn = button("← Back to Operations", 0xFF334155.toInt()) {
-                radarJob?.cancel()
-                radarJob = null
+            fun cleanupAndExit() {
+                stopRadar()
                 showHome()
             }
+
+            val backBtn = button("← Back to Operations", 0xFF334155.toInt()) {
+                cleanupAndExit()
+            }
             root.addView(backBtn)
+
+            // Mode switcher: Head-Up (moves with phone) vs North-Up
+            val modeBtn = button("🧭 ORIENTATION: HEAD-UP (Rotates With Phone)", 0xFF1E293B.toInt()) {
+                isHeadUp = !isHeadUp
+                radarView.setHeadUp(isHeadUp)
+            }
+            root.addView(modeBtn)
 
             // Radius selector
             root.addView(label("RADAR SCAN RADIUS:"))
@@ -689,8 +803,8 @@ class MainActivity : AppCompatActivity() {
             }
             root.addView(radiusSpinner)
 
-            // Triage Counter KPI
-            val kpiText = mono("🔍 Initializing proximity scan...", 14f)
+            // Live KPI Text
+            val kpiText = mono("🔍 Connecting live proximity sensor radar...", 14f)
             root.addView(kpiText)
 
             // Selected Target Card
@@ -714,18 +828,20 @@ class MainActivity : AppCompatActivity() {
             targetCard.addView(targetDetails)
             root.addView(targetCard)
 
-            // Radar Canvas View
-            lateinit var radarView: NearbyRadarView
-
             fun updateTargetCard(peer: NearbyPeerOut?) {
                 selectedPeer = peer
                 if (peer != null) {
                     val statusText = if (peer.needsHelp) "🚨 SOS CRITICAL VICTIM" else "PERSON DISCOVERED"
                     targetTitle.text = "$statusText — ${peer.alias}"
                     targetTitle.setTextColor(if (peer.needsHelp) 0xFFEF4444.toInt() else 0xFFFACC15.toInt())
-                    val bearingCompass = compassArrow(peer.bearingDeg)
+
+                    // Recalculate dynamic distance from live phone location
+                    val dynamicDist = haversineM(liveLat, liveLon, peer.lat, peer.lon)
+                    val dynamicBearing = bearingDeg(liveLat, liveLon, peer.lat, peer.lon)
+                    val bearingCompass = compassArrow(dynamicBearing)
                     val batteryStr = if (peer.batteryPct != null) " · 🔋 ${peer.batteryPct}%" else ""
-                    targetDetails.text = "Distance: ${"%.0f".format(peer.distanceM)}m | Bearing: $bearingCompass ${"%.0f".format(peer.bearingDeg)}°$batteryStr\nGPS: ${"%.5f".format(peer.lat)}, ${"%.5f".format(peer.lon)}"
+
+                    targetDetails.text = "Distance: ${"%.0f".format(dynamicDist)}m | Bearing: $bearingCompass ${"%.0f".format(dynamicBearing)}°$batteryStr\nGPS: ${"%.5f".format(peer.lat)}, ${"%.5f".format(peer.lon)}"
                     targetCard.visibility = View.VISIBLE
                 } else {
                     targetCard.visibility = View.GONE
@@ -738,6 +854,7 @@ class MainActivity : AppCompatActivity() {
                 radiusM = currentRadiusM,
                 onPeerSelected = { peer -> updateTargetCard(peer) }
             )
+            radarView.setHeadUp(isHeadUp)
             val radarLayoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 (360 * resources.displayMetrics.density).toInt()
@@ -745,8 +862,8 @@ class MainActivity : AppCompatActivity() {
             radarView.layoutParams = radarLayoutParams
             root.addView(radarView)
 
-            // List Container for direct tap selection
-            root.addView(label("DISCOVERED PEERS IN RANGE (Tap blip or list to target):"))
+            // List Container
+            root.addView(label("DISCOVERED CITIZENS (Tap blip on map or list item to lock):"))
             val peerListContainer = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
             }
@@ -755,10 +872,12 @@ class MainActivity : AppCompatActivity() {
             fun renderPeerList(peers: List<NearbyPeerOut>) {
                 peerListContainer.removeAllViews()
                 if (peers.isEmpty()) {
-                    peerListContainer.addView(label("No peers detected yet in $currentRadiusM m radius. Move closer or widen search range."))
+                    peerListContainer.addView(label("No active citizen broadcasts in ${currentRadiusM}m range.\n\nCitizens who open BhuRakshak and toggle 'Help Rescuers Find Me' appear here in real-time."))
                     return
                 }
                 for (p in peers) {
+                    val dynamicDist = haversineM(liveLat, liveLon, p.lat, p.lon)
+                    val dynamicBearing = bearingDeg(liveLat, liveLon, p.lat, p.lon)
                     val card = LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         setPadding(24, 20, 24, 20)
@@ -770,7 +889,7 @@ class MainActivity : AppCompatActivity() {
                         setOnClickListener { updateTargetCard(p) }
                     }
                     val arrowView = TextView(this@MainActivity).apply {
-                        text = compassArrow(p.bearingDeg)
+                        text = compassArrow(dynamicBearing)
                         textSize = 20f
                         setTextColor(if (p.needsHelp) 0xFFEF4444.toInt() else 0xFF38BDF8.toInt())
                         setPadding(0, 0, 24, 0)
@@ -784,7 +903,7 @@ class MainActivity : AppCompatActivity() {
                             typeface = android.graphics.Typeface.DEFAULT_BOLD
                         }
                         val s = TextView(this@MainActivity).apply {
-                            text = "${"%.0f".format(p.distanceM)}m away · Bearing ${"%.0f".format(p.bearingDeg)}° · ${"%.0f".format(p.ageS)}s ago"
+                            text = "${"%.0f".format(dynamicDist)}m away · Bearing ${"%.0f".format(dynamicBearing)}° · ${"%.0f".format(p.ageS)}s ago"
                             textSize = 12f
                             setTextColor(0xFF94A3B8.toInt())
                         }
@@ -805,22 +924,66 @@ class MainActivity : AppCompatActivity() {
                 override fun onNothingSelected(p0: AdapterView<*>?) {}
             }
 
-            // Polling Coroutine
+            // Real-time hardware compass sensor listener
+            sensorListener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent?) {
+                    if (event == null || event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+                    val rotationMatrix = FloatArray(9)
+                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                    val orientation = FloatArray(3)
+                    SensorManager.getOrientation(rotationMatrix, orientation)
+                    val azimuthDeg = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360f) % 360f
+                    radarView.setHeading(azimuthDeg)
+                    modeBtn.text = if (isHeadUp) "🧭 ORIENTATION: HEAD-UP (${"%.0f".format(azimuthDeg)}° ${compassArrow(azimuthDeg.toDouble())})" else "🧭 ORIENTATION: NORTH-UP (Locked)"
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            if (rotationSensor != null) {
+                sensorManager.registerListener(sensorListener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
+                radarSensorListener = sensorListener
+            }
+
+            // Real-time continuous GPS tracking
+            val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
+                .setMinUpdateDistanceMeters(0.5f)
+                .build()
+
+            locationCallback = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    val loc = result.lastLocation ?: return
+                    if (!isLocationSimulated) {
+                        liveLat = loc.latitude
+                        liveLon = loc.longitude
+                        radarView.updateRescuerLocation(liveLat, liveLon)
+                        if (selectedPeer != null) {
+                            updateTargetCard(selectedPeer)
+                        }
+                    }
+                }
+            }
+            if (ActivityCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                fusedClient.requestLocationUpdates(locationRequest, locationCallback, null)
+                radarLocationCallback = locationCallback
+            }
+
+            // Live Network Polling Loop (Zero hardcoded names)
             radarJob = lifecycleScope.launch(Dispatchers.IO) {
-                // First announce ourselves as field responder
+                val token = TokenStore.access(this@MainActivity)
+                val authHeader = token?.let { "Bearer $it" }
+                val selfPeerId = TokenStore.deviceId(this@MainActivity).replace("-", "").lowercase().take(16)
+                val selfEmail = TokenStore.email(this@MainActivity) ?: "Field Official"
                 try {
-                    val selfPeerId = TokenStore.deviceId(this@MainActivity).take(12).replace("-", "")
-                    val selfEmail = TokenStore.email(this@MainActivity) ?: "Field Official"
                     Api.service.announceNearby(
                         NearbyAnnounceIn(
                             peerId = selfPeerId,
                             alias = selfEmail.substringBefore("@"),
                             role = "field",
-                            lat = rescuerLat,
-                            lon = rescuerLon,
+                            lat = liveLat,
+                            lon = liveLon,
                             needsHelp = false,
                             batteryPct = 95
-                        )
+                        ),
+                        token = authHeader
                     )
                 } catch (e: Exception) {
                     // Offline tolerance
@@ -829,30 +992,29 @@ class MainActivity : AppCompatActivity() {
                 while (isActive) {
                     var queryPeers: List<NearbyPeerOut> = emptyList()
                     try {
-                        val selfPeerId = TokenStore.deviceId(this@MainActivity).take(12).replace("-", "")
                         val res = Api.service.queryNearby(
                             NearbyQueryIn(
-                                lat = rescuerLat,
-                                lon = rescuerLon,
+                                lat = liveLat,
+                                lon = liveLon,
                                 radiusM = currentRadiusM,
                                 selfPeerId = selfPeerId
-                            )
+                            ),
+                            token = authHeader
                         )
                         queryPeers = res.peers
                     } catch (e: Exception) {
-                        // Offline fallback: realistic field scenario for Tupul / Noney sector
-                        queryPeers = listOf(
-                            NearbyPeerOut(peerId = "p01", alias = "R. Kamei (SOS)", role = "citizen", lat = rescuerLat + 0.0011, lon = rescuerLon + 0.0009, needsHelp = true, batteryPct = 42, distanceM = 145.0, bearingDeg = 38.0, ageS = 14.0),
-                            NearbyPeerOut(peerId = "p02", alias = "T. Rongmei (SOS)", role = "citizen", lat = rescuerLat - 0.0015, lon = rescuerLon + 0.0012, needsHelp = true, batteryPct = 28, distanceM = 220.0, bearingDeg = 142.0, ageS = 22.0),
-                            NearbyPeerOut(peerId = "p03", alias = "G. Sharma", role = "citizen", lat = rescuerLat + 0.0022, lon = rescuerLon - 0.0018, needsHelp = false, batteryPct = 85, distanceM = 310.0, bearingDeg = 315.0, ageS = 45.0),
-                            NearbyPeerOut(peerId = "p04", alias = "Team Bravo (Field)", role = "field", lat = rescuerLat - 0.0028, lon = rescuerLon - 0.0020, needsHelp = false, batteryPct = 92, distanceM = 420.0, bearingDeg = 210.0, ageS = 8.0),
-                        ).filter { it.distanceM <= currentRadiusM }
+                        queryPeers = emptyList()
                     }
 
                     peersList = queryPeers
                     withContext(Dispatchers.Main) {
                         val sosCount = peersList.count { it.needsHelp }
-                        kpiText.text = "👥 ${peersList.size} Peers in Range  |  🚨 $sosCount SOS Distress Alerts"
+                        kpiText.text = if (peersList.isEmpty()) {
+                            "🔍 Scanning sector... (0 broadcasts in ${currentRadiusM}m)"
+                        } else {
+                            "👥 ${peersList.size} Peers in Range  |  🚨 $sosCount SOS Distress Alerts"
+                        }
+                        radarView.updateRescuerLocation(liveLat, liveLon)
                         radarView.setPeers(peersList)
                         renderPeerList(peersList)
                         if (selectedPeer != null) {
@@ -870,8 +1032,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Canvas rendering of the multi-peer tactical radar. */
-    private class NearbyRadarView(
+    /** Real-time rotating tactical radar Canvas. */
+    private inner class NearbyRadarView(
         ctx: Context,
         private var radiusM: Int = 500,
         private val onPeerSelected: (NearbyPeerOut) -> Unit,
@@ -879,6 +1041,10 @@ class MainActivity : AppCompatActivity() {
         private var peers: List<NearbyPeerOut> = emptyList()
         private var selectedPeerId: String? = null
         private var pulsePhase: Float = 0f
+        private var headingDeg: Float = 0f
+        private var headUpMode: Boolean = true
+        private var rescuerLat: Double = 0.0
+        private var rescuerLon: Double = 0.0
 
         private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0x2238BDF8.toInt()
@@ -898,6 +1064,10 @@ class MainActivity : AppCompatActivity() {
             color = 0xFFFFFFFF.toInt()
             style = Paint.Style.STROKE
             strokeWidth = 4f
+        }
+        private val headingConePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x2638BDF8.toInt()
+            style = Paint.Style.FILL
         }
         private val vectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0x5538BDF8.toInt()
@@ -949,6 +1119,22 @@ class MainActivity : AppCompatActivity() {
 
         private val peerScreenPositions = mutableListOf<Triple<NearbyPeerOut, Float, Float>>()
 
+        fun setHeadUp(enabled: Boolean) {
+            headUpMode = enabled
+            invalidate()
+        }
+
+        fun setHeading(heading: Float) {
+            headingDeg = heading
+            invalidate()
+        }
+
+        fun updateRescuerLocation(lat: Double, lon: Double) {
+            rescuerLat = lat
+            rescuerLon = lon
+            invalidate()
+        }
+
         fun setRadius(r: Int) {
             radiusM = r
             invalidate()
@@ -974,12 +1160,17 @@ class MainActivity : AppCompatActivity() {
             val maxR = Math.min(cx, cy) - 30f
             if (maxR <= 10f) return
 
-            // Dark tactical background circle
+            // Dark tactical circular background
             val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = 0xFF0B132B.toInt()
                 style = Paint.Style.FILL
             }
             canvas.drawCircle(cx, cy, maxR, bgPaint)
+
+            // Heading rotation: In Head-Up mode, rotate the world by -headingDeg so top is always where phone is pointing
+            canvas.save()
+            val rotationAngle = if (headUpMode) -headingDeg else 0f
+            canvas.rotate(rotationAngle, cx, cy)
 
             // Concentric metric distance rings (25%, 50%, 75%, 100%)
             val quarters = listOf(0.25f, 0.50f, 0.75f, 1.0f)
@@ -994,7 +1185,7 @@ class MainActivity : AppCompatActivity() {
             canvas.drawLine(cx, cy - maxR, cx, cy + maxR, crosshairPaint)
             canvas.drawLine(cx - maxR, cy, cx + maxR, cy, crosshairPaint)
 
-            // North indicator
+            // Dynamic Cardinal Indicators (Rotate with the earth)
             canvas.drawText("N", cx - 10f, cy - maxR + 28f, peerLabelPaint)
             canvas.drawText("S", cx - 10f, cy + maxR - 10f, textPaint)
             canvas.drawText("E", cx + maxR - 26f, cy + 10f, textPaint)
@@ -1002,11 +1193,28 @@ class MainActivity : AppCompatActivity() {
 
             peerScreenPositions.clear()
 
-            // Draw bearing vectors and citizen blips
+            // Draw bearing vectors and real-time citizen blips
             for (p in peers) {
-                val distRatio = (p.distanceM.toFloat() / radiusM.toFloat()).coerceIn(0f, 1.05f)
+                // Calculate real-time dynamic distance and bearing if GPS fix is active
+                var dist = p.distanceM
+                var bearing = p.bearingDeg
+                if (rescuerLat != 0.0 && rescuerLon != 0.0 && p.lat != 0.0 && p.lon != 0.0) {
+                    val dLat = Math.toRadians(p.lat - rescuerLat)
+                    val dLon = Math.toRadians(p.lon - rescuerLon)
+                    val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                            Math.cos(Math.toRadians(rescuerLat)) * Math.cos(Math.toRadians(p.lat)) *
+                            Math.sin(dLon / 2) * Math.sin(dLon / 2)
+                    dist = 2 * 6371000.0 * Math.asin(Math.min(1.0, Math.sqrt(a)))
+
+                    val y = Math.sin(dLon) * Math.cos(Math.toRadians(p.lat))
+                    val x = Math.cos(Math.toRadians(rescuerLat)) * Math.sin(Math.toRadians(p.lat)) -
+                            Math.sin(Math.toRadians(rescuerLat)) * Math.cos(Math.toRadians(p.lat)) * Math.cos(dLon)
+                    bearing = (Math.toDegrees(Math.atan2(y, x)) + 360.0) % 360.0
+                }
+
+                val distRatio = (dist.toFloat() / radiusM.toFloat()).coerceIn(0f, 1.05f)
                 val r = distRatio * maxR
-                val angleRad = Math.toRadians(p.bearingDeg - 90.0)
+                val angleRad = Math.toRadians(bearing - 90.0)
                 val px = cx + (r * Math.cos(angleRad)).toFloat()
                 val py = cy + (r * Math.sin(angleRad)).toFloat()
 
@@ -1022,7 +1230,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 canvas.drawLine(cx, cy, px, py, linePaint)
 
-                // Draw peer dot
+                // Draw peer blip
                 if (p.needsHelp) {
                     val pulseR = 14f + pulsePhase * 16f
                     canvas.drawCircle(px, py, pulseR, sosPulsePaint)
@@ -1044,25 +1252,54 @@ class MainActivity : AppCompatActivity() {
                         strokeWidth = 4f
                     }
                     canvas.drawCircle(px, py, 22f, ringP)
-                    val distTag = "${p.distanceM.toInt()}m"
+                    val distTag = "${dist.toInt()}m"
                     canvas.drawText(distTag, (cx + px) / 2f, (cy + py) / 2f - 8f, targetLabelPaint)
                 }
             }
 
-            // Draw center rescuer dot
+            canvas.restore()
+
+            // Rescuer forward orientation cone (Draw in screen space pointing forward)
+            val conePath = Path().apply {
+                moveTo(cx, cy)
+                lineTo(cx - 30f, cy - 80f)
+                lineTo(cx + 30f, cy - 80f)
+                close()
+            }
+            canvas.drawPath(conePath, headingConePaint)
+
+            // Rescuer Center Dot (YOU)
             canvas.drawCircle(cx, cy, 14f, rescuerPaint)
             canvas.drawCircle(cx, cy, 14f, rescuerBorderPaint)
             canvas.drawText("YOU", cx - 22f, cy + 34f, peerLabelPaint)
+
+            // Real-time heading readout banner at bottom
+            val modeLabel = if (headUpMode) "HEAD-UP (MOVING)" else "NORTH-UP"
+            val headingText = "🧭 HEADING: ${"%.0f".format(headingDeg)}° ${compassArrow(headingDeg.toDouble())} · $modeLabel"
+            canvas.drawText(headingText, cx - 180f, h - 8f, textPaint)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (event.action == MotionEvent.ACTION_UP) {
+                val cx = width / 2f
+                val cy = height / 2f
                 val tx = event.x
                 val ty = event.y
+
+                // Inverse rotate touch coordinates around center by +headingDeg if headUpMode is active
+                val rotDeg = if (headUpMode) headingDeg else 0f
+                val rad = Math.toRadians(rotDeg.toDouble())
+                val cos = Math.cos(rad).toFloat()
+                val sin = Math.sin(rad).toFloat()
+                val dx = tx - cx
+                val dy = ty - cy
+                val rotatedX = cx + (dx * cos - dy * sin)
+                val rotatedY = cy + (dx * sin + dy * cos)
+
                 var closestPeer: NearbyPeerOut? = null
                 var minDist = 60f
                 for ((peer, px, py) in peerScreenPositions) {
-                    val dist = Math.hypot((tx - px).toDouble(), (ty - py).toDouble()).toFloat()
+                    val dist = Math.hypot((rotatedX - px).toDouble(), (rotatedY - py).toDouble()).toFloat()
                     if (dist < minDist) {
                         minDist = dist
                         closestPeer = peer
@@ -1078,6 +1315,7 @@ class MainActivity : AppCompatActivity() {
             return true
         }
     }
+
 
     // ------------------------------------------------------------------ safe route (pathway model)
     private fun showSafeRoute() {
@@ -1495,6 +1733,13 @@ class MainActivity : AppCompatActivity() {
                 SyncWorker.triggerNow(applicationContext)
             }
         })
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopRadar()
+        chatJob?.cancel()
+        riskJob?.cancel()
     }
 
     private fun nowIso(): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
