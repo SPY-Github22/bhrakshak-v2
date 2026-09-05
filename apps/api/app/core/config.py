@@ -24,7 +24,7 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "change-me-in-production-9f2c1a"
     jwt_algorithm: str = "HS256"
-    access_token_minutes: int = 30
+    access_token_minutes: int = 1440
     refresh_token_days: int = 14
 
     open_meteo_base: str = "https://api.open-meteo.com/v1"

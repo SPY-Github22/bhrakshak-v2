@@ -1157,23 +1157,24 @@ class MainActivity : AppCompatActivity() {
                         // Offline tolerance
                     }
 
-                    var queryPeers: List<NearbyPeerOut> = emptyList()
+                    var querySucceeded = false
                     try {
+                        val queryRadius = Math.max(currentRadiusM, 500)
                         val res = Api.service.queryNearby(
                             NearbyQueryIn(
                                 lat = liveLat,
                                 lon = liveLon,
-                                radiusM = currentRadiusM,
+                                radiusM = queryRadius,
                                 selfPeerId = selfPeerId
                             ),
                             token = authHeader
                         )
-                        queryPeers = res.peers
+                        peersList = res.peers
+                        querySucceeded = true
                     } catch (e: Exception) {
-                        queryPeers = emptyList()
+                        // Keep previous peers cache on transient network timeout/drop
                     }
 
-                    peersList = queryPeers
                     withContext(Dispatchers.Main) {
                         val sosCount = peersList.count { it.needsHelp }
                         kpiText.text = if (peersList.isEmpty()) {
@@ -1188,7 +1189,9 @@ class MainActivity : AppCompatActivity() {
                         renderPeerList(peersList)
                         if (selectedPeer != null) {
                             val refreshed = peersList.firstOrNull { it.peerId == selectedPeer?.peerId }
-                            updateTargetCard(refreshed)
+                            if (refreshed != null) {
+                                updateTargetCard(refreshed)
+                            }
                         } else if (sosCount > 0) {
                             val nearestSos = peersList.filter { it.needsHelp }.minByOrNull { it.distanceM }
                             updateTargetCard(nearestSos)

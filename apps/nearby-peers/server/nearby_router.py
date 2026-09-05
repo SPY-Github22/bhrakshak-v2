@@ -129,13 +129,8 @@ def make_nearby_router(
             raise HTTPException(422, "role must be citizen|field|relay")
         rec = _PEERS.get(body.peer_id)
         now = time.time()
-        if rec is None:
-            if len(_PEERS) >= MAX_PEERS:
-                raise HTTPException(503, "peer table full — try again shortly")
-        else:
-            # flood guard: more than 1 announce/sec from the same peer is abuse
-            if now - rec["ts"] < 1.0:
-                raise HTTPException(429, "announce too frequent")
+        if rec is None and len(_PEERS) >= MAX_PEERS:
+            raise HTTPException(503, "peer table full — try again shortly")
         _PEERS[body.peer_id] = {
             "peer_id": body.peer_id,
             "alias": _CONTROL_RE.sub("", body.alias)[:MAX_ALIAS_LEN] or "C-Anon",
