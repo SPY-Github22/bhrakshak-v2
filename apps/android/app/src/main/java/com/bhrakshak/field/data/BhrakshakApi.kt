@@ -248,6 +248,50 @@ data class ImageUploadOut(
     @SerialName("ai_analysis") val aiAnalysis: PhotoVerdict? = null,
 )
 
+// --- Nearby Peers Rendezvous & Tactical Rescue ------------------------------
+@Serializable
+data class NearbyAnnounceIn(
+    @SerialName("peer_id") val peerId: String,
+    val alias: String,
+    val role: String = "field",
+    val lat: Double,
+    val lon: Double,
+    @SerialName("accuracy_m") val accuracyM: Double? = null,
+    @SerialName("needs_help") val needsHelp: Boolean = false,
+    @SerialName("battery_pct") val batteryPct: Int? = null,
+)
+
+@Serializable
+data class NearbyQueryIn(
+    val lat: Double,
+    val lon: Double,
+    @SerialName("radius_m") val radiusM: Int = 500,
+    @SerialName("self_peer_id") val selfPeerId: String? = null,
+)
+
+@Serializable
+data class NearbyPeerOut(
+    @SerialName("peer_id") val peerId: String,
+    val alias: String,
+    val role: String = "citizen",
+    val lat: Double,
+    val lon: Double,
+    @SerialName("accuracy_m") val accuracyM: Double? = null,
+    @SerialName("needs_help") val needsHelp: Boolean = false,
+    @SerialName("battery_pct") val batteryPct: Int? = null,
+    @SerialName("distance_m") val distanceM: Double = 0.0,
+    @SerialName("bearing_deg") val bearingDeg: Double = 0.0,
+    @SerialName("age_s") val ageS: Double = 0.0,
+)
+
+@Serializable
+data class NearbyQueryOut(
+    @SerialName("generated_at") val generatedAt: Double = 0.0,
+    @SerialName("radius_m") val radiusM: Int = 500,
+    @SerialName("n_peers") val nPeers: Int = 0,
+    val peers: List<NearbyPeerOut> = emptyList(),
+)
+
 @Serializable
 data class ChatMessageIn(
     @SerialName("sender_name") val senderName: String,
@@ -353,6 +397,16 @@ interface BhrakshakApi {
         @Part("taken_at") takenAt: okhttp3.RequestBody? = null,
         @Header("Authorization") token: String? = null,
     ): ImageUploadOut
+
+    @POST("api/v1/nearby/announce")
+    suspend fun announceNearby(
+        @Body body: NearbyAnnounceIn,
+    ): okhttp3.ResponseBody
+
+    @POST("api/v1/nearby/query")
+    suspend fun queryNearby(
+        @Body body: NearbyQueryIn,
+    ): NearbyQueryOut
 }
 
 // ---------------------------------------------------------------------------
