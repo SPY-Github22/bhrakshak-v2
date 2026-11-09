@@ -49,7 +49,8 @@ RESEARCH_TOPICS = [
 ]
 
 def log_research_update():
-    docs_path = "/home/sudpy/Projects/Bhrakshak/docs/RESEARCH_FEED.jsonl"
+    repo_root = Path(__file__).resolve().parents[1]
+    docs_path = str(repo_root / "docs" / "RESEARCH_FEED.jsonl")
     os.makedirs(os.path.dirname(docs_path), exist_ok=True)
     
     idx = 0

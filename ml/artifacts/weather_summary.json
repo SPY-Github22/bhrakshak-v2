@@ -12,7 +12,7 @@
     "soil_moisture_coverage_pct": 0.2,
     "db_rows_written": 0,
     "synthetic": false,
-    "cache": "/home/sudpy/Landslide Proto/bhrakshak/ml/cache/weather_imphal_west.parquet",
+    "cache": "ml/cache/weather_imphal_west.parquet",
     "error": "historical pull failed; existing cache preserved"
   }
 ]

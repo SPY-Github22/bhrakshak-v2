@@ -121,7 +121,7 @@ make seed        # Seeds pilot districts (Aizawl, East Khasi Hills, Noney, Gangt
 ## 📱 Mobile App (Android & PWA)
 
 ### Native Android Client
-- **Pre-compiled APK**: Located in `/home/sudpy/Downloads/bhrakshak-field-latest.apk`
+- **Pre-compiled APK**: Located in `~/Downloads/bhrakshak-field-latest.apk` or in `apps/android/`
 - **Default API Endpoint**: Configured to connect to `https://bhrakshak-api-demo.loca.lt`
 - **Offline Queue**: Backed by Android Room database; automatically synchronizes pending reports via `WorkManager`.
 - **Hardware Integrations**: Camera capture, BLE advertising via `BhrakshakBeacon.kt`, fine GPS location, and hardware vibration motors.

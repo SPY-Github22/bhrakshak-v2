@@ -42,13 +42,13 @@ demo: ## Full scripted demo state: realistic seed -> storm injection -> metrics 
 	@echo "Open http://localhost:3000 and press 'Inject Monsoon Cell'."
 
 replay: ## Run 90-second interactive June 2022 Tupul landslide simulation replay
-	/home/sudpy/Projects/Bhrakshak/.venv/bin/python demo/replay_tupul_disaster.py
+	python3 demo/replay_tupul_disaster.py
 
 simulate-tupul: ## Run 15-minute time-lapse June 2022 Tupul Manipur disaster simulation
-	/home/sudpy/Projects/Bhrakshak/.venv/bin/python scripts/simulate_tupul.py
+	python3 scripts/simulate_tupul.py
 
 simulate-lorawan: ## Run virtual ESP32/LoRaWAN edge sensor telemetry publishing simulation
-	/home/sudpy/Projects/Bhrakshak/.venv/bin/python scripts/simulate_lorawan.py --iterations 6 --interval 0.2
+	python3 scripts/simulate_lorawan.py --iterations 6 --interval 0.2
 
 test: ## Run API tests against the running stack
 	$(COMPOSE) exec api pytest -q /srv/apps/api/tests

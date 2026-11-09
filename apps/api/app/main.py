@@ -70,10 +70,11 @@ app.include_router(ws.router)  # websocket at /ws/live
 
 from fastapi.responses import FileResponse, JSONResponse
 
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _APK_CANDIDATES = (
-    "/home/sudpy/Landslide Proto/bhrakshak/bhrakshak-field-latest.apk",
-    "/home/sudpy/Landslide Proto/bhrakshak-v2/apps/android/bhrakshak-field-latest.apk",
-    "/home/sudpy/Landslide Proto/bhrakshak-v2/bhrakshak-field-latest.apk",
+    _REPO_ROOT / "apps" / "android" / "bhrakshak-field-latest.apk",
+    _REPO_ROOT / "bhrakshak-field-latest.apk",
+    Path.home() / "Downloads" / "bhrakshak-field-latest.apk",
 )
 
 

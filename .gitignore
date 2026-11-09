@@ -38,3 +38,6 @@ apps/dashboard/tsconfig.tsbuildinfo
 data/uploads/
 apps/api/data/
 **/data/uploads/
+
+# Local IDE configuration
+.claude/

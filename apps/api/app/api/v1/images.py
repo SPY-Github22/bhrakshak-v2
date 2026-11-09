@@ -16,7 +16,7 @@ _IMAGE_ROUTER_PATH = (
 
 if not _IMAGE_ROUTER_PATH.is_file():
     # Fallback to local image-upload within repository root
-    _IMAGE_ROUTER_PATH = Path("/home/sudpy/Landslide Proto/bhrakshak-v2/image-upload/backend/router.py")
+    _IMAGE_ROUTER_PATH = Path(__file__).resolve().parents[3] / "image-upload" / "backend" / "router.py"
 
 _spec = importlib.util.spec_from_file_location("bh_image_router", _IMAGE_ROUTER_PATH)
 if _spec is None or _spec.loader is None:
